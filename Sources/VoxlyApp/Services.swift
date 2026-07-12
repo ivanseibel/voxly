@@ -100,9 +100,14 @@ struct LocalTranscriber: Sendable {
         do {
             let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: ["response_format": "json", "language": language.whisperCode, "temperature": "0"])
             let result = try JSONDecoder().decode(LocalModelHTTP.WhisperResponse.self, from: data).text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !result.isEmpty { return result }
+            if !result.isEmpty { return cleanText(result) }
         } catch { }
-        return try transcribeCLI(audio: audio, language: language)
+        return try cleanText(transcribeCLI(audio: audio, language: language))
+    }
+
+    private func cleanText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func transcribeCLI(audio: URL, language: DictationLanguage) throws -> String {
