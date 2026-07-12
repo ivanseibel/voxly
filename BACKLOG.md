@@ -35,30 +35,14 @@ Voxly MVP macOS funciona para ditado local:
 
 ## Bugs pendentes (ordenados por prioridade)
 
-> BUG-1 e BUG-2 foram resolvidos — ver seção "Resolvidos" abaixo.
-
-### BUG-3: Restauração do modo ativo entre sessões não testada/validada
-
-**Arquivo:** `Stores.swift` linhas 17-21, `Models.swift` linha 28  
-**Sintoma:** Possível perda do modo selecionado ao reabrir Voxly.  
-**Causa:** Se a decodificação dos modos salvos falha (dados corrompidos, migração), `DictationMode.defaults` gera novos UUIDs. O `activeModeID` salvo em UserDefaults não encontra correspondência nos novos UUIDs e cai no primeiro modo. Lógica está correta no caminho feliz, mas não resiliente a falhas de decodificação.  
-**Correção:** Validar teste de aceitação: selecionar `Limpar texto`, fechar Voxly completamente, abrir e confirmar que o modo persiste. Se falhar, investigar dados de UserDefaults.
-
-### BUG-4: Quebras de linha artificiais no texto inserido
-
-**Sintoma:** Captura de tela mostrou linhas quebradas no meio de palavras (`selec` / `cionar`).  
-**Possíveis causas (a investigar):**
-- Newline inserido pelo modelo Whisper na transcrição.
-- Newline adicionado pelo modelo Llama na limpeza.
-- Quebra visual do campo/balão por largura disponível (não é bug).
-**Teste:** Comparar `rawText` e `finalText` no Histórico, inspecionar `\n` em cada um. Colar em campo largo/plain text. Critério: frases comuns não devem receber newline no meio de palavra.
+> BUG-1, BUG-2, BUG-3 e BUG-4 foram resolvidos — ver seção "Resolvidos" abaixo.
 
 ## Melhorias pendentes
 
-### Cápsula flutuante com posição fixa na tela
+### Cápsula flutuante com posição fixa na tela — implementação concluída
 
-**Atual:** A cápsula de status (Gravando, Transcrevendo, Inserido, etc.) aparece próximo ao cursor do mouse.  
-**Desejado:** Posição fixa: horizontalmente centralizada na tela e próximo à parte inferior (com margem confortável, não colada na borda).
+**Implementado:** A cápsula de status (Gravando, Transcrevendo, Inserido, etc.) fica centralizada horizontalmente no monitor ativo e próxima à parte inferior da área visível, com margem de 24 pontos.  
+**Validação pendente:** Confirmar visualmente durante uma gravação que a posição atende ao esperado em uso real.
 
 ## Arquitetura atual
 
@@ -127,11 +111,17 @@ zsh scripts/package-app.sh
 
 ## Próximo passo recomendado
 
-1. **BUG-3 (validação):** Testar persistência do modo ativo entre sessões.
-2. **BUG-4 (investigação):** Diagnosticar origem de quebras de linha artificiais.
-3. **Melhoria:** Posição fixa da cápsula flutuante.
+1. **Validação:** Confirmar visualmente a posição fixa da cápsula durante uma gravação.
 
 ## Resolvidos
+
+### ✅ BUG-4: Quebras de linha artificiais no texto inserido
+
+**Validação:** O comportamento descrito não ocorre mais em frases comuns; não são observadas quebras de linha no meio de palavras no texto inserido.
+
+### ✅ BUG-3: Restauração do modo ativo entre sessões
+
+**Validação:** O modo `Limpar texto` foi selecionado, o app foi fechado completamente e reaberto. Após o relançamento, o UUID salvo em `activeModeID` continuou correspondendo ao modo `Limpar texto` na lista persistida.
 
 ### ✅ BUG-2: `TextInserter.insert` sempre retornava `.copied`
 

@@ -59,7 +59,16 @@ final class CapsulePanelController {
         }
         panel?.contentView = view
         let mouse = NSEvent.mouseLocation
-        panel?.setFrameOrigin(NSPoint(x: mouse.x - 143, y: mouse.y - 94))
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main
+        if let screen {
+            let frame = screen.visibleFrame
+            let panelSize = panel?.frame.size ?? NSSize(width: 286, height: 64)
+            let margin: CGFloat = 24
+            panel?.setFrameOrigin(NSPoint(
+                x: frame.midX - panelSize.width / 2,
+                y: frame.minY + margin
+            ))
+        }
         panel?.orderFrontRegardless()
     }
 }
