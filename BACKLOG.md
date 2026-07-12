@@ -1,9 +1,9 @@
 # Voxly — backlog
 
-Atualizado em 2026-07-12.
+Updated on 2026-07-12.
 
-## Pendências
+## Tasks
 
-Nenhuma pendência registrada.
+No pending tasks registered.
 
-O estado atual, a arquitetura, os comandos de retomada, as métricas e o histórico de correções estão em [HANDOFF.md](HANDOFF.md).
+The current status, architecture, resume commands, metrics, and fix history are documented in [HANDOFF.md](HANDOFF.md).

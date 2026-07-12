@@ -1,175 +1,175 @@
-# Especificação de Produto — Voxly v1
+# Product Specification — Voxly v1
 
-## 1. Visão do produto
+## 1. Product Vision
 
-O Voxly é um aplicativo de ditado local para macOS que transforma fala em texto e o insere no campo ativo de qualquer aplicativo compatível. O usuário mantém pressionado um atalho global, fala, solta o atalho e recebe o texto transcrito — opcionalmente refinado por instruções locais — sem enviar áudio ou conteúdo a serviços de IA remotos.
+Voxly is a local dictation application for macOS that transforms speech into text and inserts it into the active field of any compatible application. The user holds down a global shortcut, speaks, releases the shortcut, and receives the transcribed text — optionally refined by local instructions — without sending audio or content to remote AI services.
 
-O foco da v1 é oferecer uma alternativa privada e rápida a ferramentas como Wispr Flow e Spokenly para pessoas que escrevem em português e inglês em apps de trabalho, comunicação e desenvolvimento.
+The focus of v1 is to offer a private, fast alternative to tools like Wispr Flow and Spokenly for people who write in Portuguese and English in work, communication, and development apps.
 
-## 2. Público e necessidades
+## 2. Target Audience & Needs
 
-### Público primário
+### Primary Audience
 
-Pessoas com Mac Apple Silicon que escrevem frequentemente em campos de texto de múltiplos aplicativos e querem ditar com privacidade, sem depender de uma conexão ou conta de IA.
+People with Apple Silicon Macs who frequently write in text fields across multiple applications and want to dictate privately, without depending on an internet connection or an AI account.
 
-### Necessidades atendidas
+### Addressed Needs
 
-- Ditar sem abrir uma janela ou trocar de aplicativo.
-- Produzir texto fiel ou adaptado ao contexto, conforme um modo escolhido.
-- Definir atalhos e instruções de escrita reutilizáveis.
-- Recuperar transcrições recentes sem conservar arquivos de áudio sensíveis.
-- Saber claramente quando o app está gravando, processando ou não consegue inserir o texto.
+- Dictating without opening a window or switching applications.
+- Producing faithful text or text adapted to the context, depending on the chosen mode.
+- Defining reusable shortcuts and writing instructions.
+- Retrieving recent transcriptions without retaining sensitive audio files.
+- Knowing clearly when the app is recording, processing, or failing to insert text.
 
-## 3. Escopo da v1
+## 3. v1 Scope
 
-### Incluído
+### Included
 
-- Aplicativo de menubar nativo para macOS recente em Apple Silicon (M1 ou posterior).
-- Ativação global por pressionar-e-segurar; Command direito é o atalho padrão e outros atalhos podem ser configurados.
-- Captura de áudio, transcrição local e descarte do áudio logo após a transcrição.
-- Reconhecimento otimizado para português e inglês, com seleção de idioma por modo.
-- Modos salvos com atalho, idioma, instruções, modelo e ação de saída.
-- Inserção automática no campo que estava focado, com cópia para a área de transferência como contingência.
-- Histórico local de textos, com pesquisa e exclusão.
-- Onboarding e estado de diagnóstico para permissões de Microfone e Acessibilidade.
-- Download, verificação e gerenciamento local de modelos de transcrição e pós-processamento.
+- Native menubar application for recent macOS on Apple Silicon (M1 or later).
+- Global activation via press-and-hold; Right Command is the default shortcut and other shortcuts can be configured.
+- Audio capture, local transcription, and discarding of audio immediately after transcription.
+- Optimized recognition for Portuguese and English, with language selection per mode.
+- Saved modes with shortcut, language, instructions, model, and output action.
+- Automatic insertion into the previously focused field, with copying to clipboard as a contingency.
+- Local text history, with search and deletion.
+- Onboarding and diagnostic state for Microphone and Accessibility permissions.
+- Local download, verification, and management of transcription and post-processing models.
 
-### Fora do escopo
+### Out of Scope
 
-- Windows, macOS Intel, iOS e Android.
-- Sincronização em nuvem, contas, colaboração ou telemetria de conteúdo.
-- Retenção, reprodução ou exportação de áudio.
-- Ativação por alternância, duplo toque, voz, mouse ou gesto.
-- Modelos externos, chaves de API ou processamento remoto.
-- Automação de aplicativos, comandos de voz e execução de scripts.
+- Windows, macOS Intel, iOS, and Android.
+- Cloud sync, accounts, collaboration, or content telemetry.
+- Audio retention, playback, or export.
+- Activation by toggle, double tap, voice, mouse, or gesture.
+- External models, API keys, or remote processing.
+- Application automation, voice commands, and script execution.
 
-## 4. Fluxo principal
+## 4. Main Flow
 
-1. O usuário deixa o cursor em um campo de texto de um aplicativo compatível.
-2. Mantém pressionado o atalho do modo ativo; o Voxly registra o app e o foco atuais e inicia a captura.
-3. A cápsula flutuante perto do cursor mostra o nível de áudio e o estado `Gravando`.
-4. Ao soltar o atalho, o Voxly encerra a captura e mostra `Transcrevendo`.
-5. O motor local gera o texto bruto; o áudio é removido da memória e de qualquer arquivo temporário.
-6. Se o modo tiver instruções, o LLM local produz o texto final sob regras de preservação; a cápsula mostra `Ajustando`.
-7. O Voxly restaura o foco original e insere o resultado. Se não puder inserir, copia o resultado e informa o usuário.
-8. O histórico recebe o texto final, o texto bruto, o modo, o idioma e a data, mas nunca o áudio.
+1. The user places the cursor in a text field of a compatible application.
+2. Holds down the shortcut of the active mode; Voxly records the current app and focus and starts capture.
+3. The floating capsule near the cursor shows the audio level and the `Recording` state.
+4. Upon releasing the shortcut, Voxly ends capture and shows `Transcribing`.
+5. The local engine generates the raw text; audio is removed from memory and any temporary file.
+6. If the mode has instructions, the local LLM produces the final text under preservation rules; the capsule shows `Refining`.
+7. Voxly restores original focus and inserts the result. If it cannot insert, it copies the result and informs the user.
+8. The history receives the final text, raw text, mode, language, and date, but never the audio.
 
-## 5. Requisitos funcionais
+## 5. Functional Requirements
 
-### 5.1 Captura e atalhos
+### 5.1 Capture & Shortcuts
 
-- O Voxly deve observar atalhos globais mesmo quando não estiver em primeiro plano.
-- O atalho padrão deve ser Command direito em modo pressionar-e-segurar.
-- Enquanto o atalho estiver pressionado, o estado deve ser `Gravando`; sua liberação encerra a captura.
-- Escape deve cancelar a gravação ou o processamento em curso e não inserir texto.
-- O usuário deve poder atribuir um atalho exclusivo a cada modo salvo.
-- O Voxly deve impedir atalhos duplicados e avisar quando um atalho não puder ser registrado no sistema.
+- Voxly must monitor global shortcuts even when it is not in the foreground.
+- The default shortcut must be the Right Command key in press-and-hold mode.
+- While the shortcut is pressed down, the state must be `Recording`; releasing it ends the capture.
+- Escape must cancel the ongoing recording or processing and not insert any text.
+- The user must be able to assign a unique shortcut to each saved mode.
+- Voxly must prevent duplicate shortcuts and warn when a shortcut cannot be registered with the system.
 
-### 5.2 Transcrição local
+### 5.2 Local Transcription
 
-- A transcrição deve usar `whisper.cpp` com aceleração Metal e modelo local equilibrado.
-- Cada modo deve definir português, inglês ou detecção entre os dois idiomas.
-- O app deve manter o texto bruto para auditoria no histórico, separado do resultado otimizado.
-- Caso a transcrição falhe, nenhum texto deve ser inserido e a cápsula deve exibir um erro recuperável.
+- Transcription must use `whisper.cpp` with Metal acceleration and a balanced local model.
+- Each mode must define Portuguese, English, or auto-detection between the two languages.
+- The app must keep the raw text for audit in the history, separate from the optimized result.
+- If transcription fails, no text should be inserted and the capsule must display a recoverable error.
 
-### 5.3 Pós-processamento local
+### 5.3 Local Post-Processing
 
-- Um modo sem instruções deve usar o texto bruto como resultado final.
-- Um modo com instruções deve executar um modelo instruct local via `llama.cpp` com aceleração Metal.
-- Toda solicitação ao LLM deve incluir regras fixas: preservar fatos, nomes, números, idioma e intenção; não inventar, resumir nem excluir informações salvo se a instrução do modo determinar explicitamente.
-- O resultado do LLM deve ser tratado como falho se estiver vazio; nesse caso, o Voxly deve usar o texto bruto e informar que o refinamento não foi aplicado.
+- A mode without instructions must use the raw text as the final result.
+- A mode with instructions must run a local instruct model via `llama.cpp` with Metal acceleration.
+- Every request to the LLM must include strict rules: preserve facts, names, numbers, language, and intent; do not invent, summarize, or exclude information unless the mode's instructions explicitly dictate it.
+- The LLM result must be treated as failed if it is empty; in this case, Voxly must use the raw text and inform the user that refinement was not applied.
 
-### 5.4 Modos
+### 5.4 Modes
 
-Cada modo deve conter:
+Each mode must contain:
 
-| Campo | Descrição |
+| Field | Description |
 | --- | --- |
-| Nome | Rótulo exibido na interface e no histórico. |
-| Atalho | Combinação global única usada para iniciar a gravação. |
-| Idioma | Português, inglês ou automático entre ambos. |
-| Instruções | Texto de pós-processamento; pode ficar vazio. |
-| Perfil de modelo | Perfil local equilibrado da v1. |
-| Saída | Inserir automaticamente, com cópia de contingência. |
+| Name | Label displayed in the interface and history. |
+| Shortcut | Unique global combination used to start recording. |
+| Language | Portuguese, English, or automatic between both. |
+| Instructions | Post-processing text; can be empty. |
+| Model profile | Balanced local profile of v1. |
+| Output | Automatically insert, with clipboard copy as contingency. |
 
-Os modos iniciais são:
+The initial modes are:
 
-| Modo | Instrução padrão |
+| Mode | Default Instruction |
 | --- | --- |
-| Transcrição fiel | Preservar a fala, ajustando somente pontuação e capitalização óbvias. |
-| Limpar texto | Remover vícios de linguagem e organizar o texto sem alterar significado ou fatos. |
-| E-mail profissional | Converter em e-mail claro e profissional, preservando conteúdo, nomes e solicitações. |
-| Código/notas técnicas | Organizar como nota técnica, preservar termos, identificadores, números e blocos de código ditados. |
+| Faithful transcription | Preserve speech, adjusting only obvious punctuation and capitalization. |
+| Clean text | Remove filler words and organize the text without changing meaning or facts. |
+| Professional email | Convert into a clear and professional email, preserving content, names, and requests. |
+| Code/technical notes | Organize as a technical note, preserving terms, identifiers, numbers, and dictated code blocks. |
 
-### 5.5 Inserção de texto
+### 5.5 Text Insertion
 
-- Antes de gravar, o app deve registrar o elemento ou aplicativo que tinha foco.
-- Após processar, deve tentar inserir o texto via APIs de Acessibilidade no destino original.
-- Quando a inserção direta não for possível, deve preservar o clipboard anterior, copiar o resultado, tentar colar e restaurar o clipboard anterior quando seguro.
-- Se não puder inserir ou colar, deve deixar o resultado no clipboard e apresentar uma mensagem clara de que o usuário precisa colar manualmente.
-- Nenhum resultado deve ser inserido após cancelamento, erro de transcrição ou liberação sem áudio útil.
+- Before recording, the app must register the focused element or application.
+- After processing, it must attempt to insert the text via Accessibility APIs into the original destination.
+- When direct insertion is not possible, it must preserve the previous clipboard, copy the result, attempt to paste, and restore the previous clipboard when safe.
+- If it cannot insert or paste, it must leave the result on the clipboard and present a clear message that the user needs to paste manually.
+- No result should be inserted after cancellation, transcription error, or release without useful audio.
 
-### 5.6 Histórico e privacidade
+### 5.6 History & Privacy
 
-- O histórico deve ser local e ligado por padrão.
-- Cada entrada deve armazenar texto bruto, texto final, modo, idioma, horário e resultado da inserção.
-- A tela de histórico deve permitir pesquisa por texto e exclusão individual ou total.
-- Áudio e arquivos temporários de áudio devem ser apagados após a transcrição, inclusive quando ela falhar ou for cancelada.
-- O app não deve enviar áudio, transcrição, instruções ou histórico a serviços externos após os modelos terem sido instalados.
+- History must be local and enabled by default.
+- Each entry must store raw text, final text, mode, language, timestamp, and insertion result.
+- The history screen must allow text searching and individual or complete deletion.
+- Audio and temporary audio files must be deleted after transcription, including when it fails or is cancelled.
+- The app must not send audio, transcription, instructions, or history to external services once the models have been installed.
 
-### 5.7 Modelos e onboarding
+### 5.7 Models & Onboarding
 
-- O primeiro uso deve explicar que o Voxly processa conteúdo localmente e solicitar permissões de Microfone e Acessibilidade.
-- O app deve baixar e verificar os modelos locais necessários antes de liberar a primeira transcrição.
-- A interface deve informar progresso, espaço necessário, conclusão e falha de download.
-- Se permissões ou modelos estiverem indisponíveis, o menubar e a tela principal devem mostrar o bloqueio e instruções para resolvê-lo.
+- First-time use must explain that Voxly processes content locally and request Microphone and Accessibility permissions.
+- The app must download and verify the necessary local models before enabling the first transcription.
+- The interface must display download progress, required space, completion, and failure.
+- If permissions or models are unavailable, the menubar and main screen must show the blocking status and instructions to resolve it.
 
-## 6. Experiência e interface
+## 6. Experience & Interface
 
-### Linguagem visual
+### Visual Language
 
-O produto deve parecer uma ferramenta silenciosa de mesa: grafite de alumínio e preto para superfícies, verde para captação ativa, âmbar para processamento, branco para texto final e azul de seleção do macOS. A interface não deve adotar um dashboard de métricas, cards genéricos ou navegação lateral como estrutura principal.
+The product should feel like a quiet desktop tool: aluminum graphite and black for surfaces, green for active capture, amber for processing, white for final text, and macOS selection blue. The interface must not adopt a metrics dashboard, generic cards, or side navigation as its primary structure.
 
-### Superfícies
+### Surfaces
 
-- O ícone de menubar oferece acesso ao estado, modo ativo, histórico, configurações e diagnóstico.
-- A cápsula de fala é a principal assinatura visual: compacta, flutuante e temporária; ela acompanha a gravação sem roubar foco.
-- A janela de configuração prioriza a edição de modos e o histórico, com controles diretos e pouco ruído visual.
+- The menubar icon offers access to the status, active mode, history, settings, and diagnostics.
+- The speech capsule is the main visual signature: compact, floating, and temporary; it accompanies the recording without stealing focus.
+- The settings window prioritizes editing modes and history, with direct controls and minimal visual noise.
 
-### Estados da cápsula
+### Capsule States
 
-| Estado | Feedback |
+| State | Feedback |
 | --- | --- |
-| Pronto | Ícone discreto e modo ativo no menubar. |
-| Gravando | Indicador verde e medidor de nível de áudio. |
-| Transcrevendo | Indicador âmbar com progresso indeterminado. |
-| Ajustando | Indicador âmbar e nome do modo aplicado. |
-| Inserido | Confirmação breve com marca verde. |
-| Copiado | Aviso breve para colar manualmente. |
-| Erro | Mensagem curta, ação de recuperação e sem inserção automática. |
+| Ready | Discrete icon and active mode in the menubar. |
+| Recording | Green indicator and audio level meter. |
+| Transcribing | Amber indicator with indeterminate progress. |
+| Refining | Amber indicator and applied mode name. |
+| Inserted | Brief confirmation with green check. |
+| Copied | Brief notice to paste manually. |
+| Error | Short message, recovery action, and no automatic insertion. |
 
-## 7. Requisitos não funcionais
+## 7. Non-Functional Requirements
 
-- O app deve funcionar sem rede depois que os modelos forem instalados.
-- O app deve ser responsivo durante captura e processamento, mantendo a interface e o atalho disponíveis.
-- Modelos devem usar aceleração Metal e o perfil padrão deve equilibrar precisão, memória e tempo de resposta.
-- Todos os dados persistentes devem ficar no armazenamento privado do app no Mac.
-- A distribuição deve ser assinada e notarizada; não será publicada pela Mac App Store por depender de acesso global a teclado e Acessibilidade.
+- The app must function offline after the models are installed.
+- The app must remain responsive during capture and processing, keeping the interface and shortcut available.
+- Models must use Metal acceleration and the default profile must balance accuracy, memory, and response time.
+- All persistent data must reside in the app's private storage on the Mac.
+- Distribution must be signed and notarized; it will not be published on the Mac App Store because it relies on global keyboard access and Accessibility.
 
-## 8. Critérios de aceite
+## 8. Acceptance Criteria
 
-- Command direito inicia a gravação somente enquanto estiver pressionado e sua liberação encerra o fluxo.
-- O texto nunca é inserido antes da liberação do atalho.
-- Um modo aplica apenas as próprias instruções e o modo `Transcrição fiel` não executa pós-processamento de reescrita.
-- O resultado é inserido no campo inicialmente focado ou fica copiado com aviso explícito.
-- O áudio não permanece no histórico, em cache ou em arquivos temporários após conclusão, cancelamento ou falha.
-- O histórico pode ser pesquisado e apagado localmente.
-- Sem rede, uma instalação com modelos já baixados continua capaz de gravar, transcrever, otimizar e inserir texto.
-- Erros de permissão, modelo, transcrição e inserção são visíveis e não causam perda silenciosa do resultado.
+- The Right Command key starts recording only while held down, and its release terminates the flow.
+- Text is never inserted before the shortcut is released.
+- A mode applies only its own instructions, and the `Faithful transcription` mode does not perform rewriting post-processing.
+- The result is inserted into the initially focused field or copied to the clipboard with an explicit warning.
+- Audio does not remain in history, cache, or temporary files after completion, cancellation, or failure.
+- History can be searched and deleted locally.
+- Offline, an installation with models already downloaded remains capable of recording, transcribing, optimizing, and inserting text.
+- Permission, model, transcription, and insertion errors are visible and do not cause silent loss of the result.
 
-## 9. Métricas de sucesso da v1
+## 9. v1 Success Metrics
 
-- O fluxo de ditado completo é concluído sem interação adicional além de pressionar, falar e soltar na maioria dos casos.
-- Usuários conseguem configurar e usar ao menos um modo personalizado após o onboarding.
-- Falhas de inserção preservam o resultado no clipboard em vez de descartá-lo.
-- Nenhum áudio persiste após o ciclo de ditado.
+- The entire dictation flow is completed without additional interaction beyond pressing, speaking, and releasing in most cases.
+- Users can configure and use at least one custom mode after onboarding.
+- Insertion failures preserve the result on the clipboard instead of discarding it.
+- No audio persists after the dictation cycle.

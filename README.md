@@ -1,32 +1,32 @@
 # Voxly
 
-MVP macOS local: segure Command direito, fale, solte; Voxly transcreve, opcionalmente ajusta, tenta inserir resultado no campo original. Áudio temporário é removido após processamento. Um atalho global fixo; modos alteram idioma/instruções.
+Local macOS MVP: hold right Command, speak, release; Voxly transcribes, optionally refines, and attempts to insert the result into the original text field. Temporary audio is removed after processing. One fixed global shortcut; modes alter language/instructions.
 
-## Estado
+## Status
 
-Ditado, inserção no cursor, histórico, permissões, modelos locais e aceleração arm64/Metal estão funcionando. Performance melhorou consideravelmente após trocar binários Homebrew x86 por builds nativos arm64/Metal e servidores persistentes.
+Dictation, cursor insertion, history, permissions, local models, and arm64/Metal acceleration are working. Performance has improved significantly after replacing Homebrew x86 binaries with native arm64/Metal builds and persistent servers.
 
-O estado atual e o histórico técnico estão em [HANDOFF.md](HANDOFF.md). Pendências abertas ficam em [BACKLOG.md](BACKLOG.md).
+The current state and technical history are documented in [HANDOFF.md](HANDOFF.md). Open tasks are tracked in [BACKLOG.md](BACKLOG.md).
 
-## Rodar
+## Run
 
 ```sh
 swift run Voxly
 ```
 
-## Motores locais
+## Local Engines
 
-Coloque executáveis e modelos em `~/Library/Application Support/Voxly/Models/`:
+Place executables and models in `~/Library/Application Support/Voxly/Models/`:
 
 ```text
-whisper-cli        # whisper.cpp compilado com Metal
-ggml-small.bin     # modelo Whisper
+whisper-cli        # whisper.cpp compiled with Metal
+ggml-small.bin     # Whisper model
 ```
 
-`llama-cli` e `instruct.gguf` são opcionais: habilitam limpeza/e-mail/notas. Sem eles, Voxly preserva texto bruto. Depois, libere Microfone e Acessibilidade em Diagnóstico. Nenhum conteúdo é enviado por Voxly.
+`llama-cli` and `instruct.gguf` are optional: they enable cleaning/email/notes refinement. Without them, Voxly preserves raw text. Afterwards, enable Microphone and Accessibility permissions in Diagnostics. No content is sent by Voxly.
 
-O app inicia servidores locais persistentes para Whisper e Llama quando os binários nativos estão instalados. Isso evita recarregar modelos a cada ditado. Os servidores escutam somente em `127.0.0.1` nas portas `18080` e `18081`.
+The app starts persistent local servers for Whisper and Llama when native binaries are installed. This avoids reloading models for every dictation. The servers only listen on `127.0.0.1` on ports `18080` and `18081`.
 
-## Retomada
+## Resuming Work
 
-Leia [HANDOFF.md](HANDOFF.md) primeiro. Consulte [BACKLOG.md](BACKLOG.md) para verificar pendências abertas.
+Read [HANDOFF.md](HANDOFF.md) first. Refer to [BACKLOG.md](BACKLOG.md) to check for open tasks.

@@ -1,44 +1,44 @@
-# Voxly — handoff de retomada
+# Voxly — handoff and resume
 
-Atualizado em 2026-07-12.
+Updated on 2026-07-12.
 
-## Estado atual
+## Current Status
 
-O MVP macOS funciona para ditado local:
+The macOS MVP is working for local dictation:
 
-- Segurar Command direito inicia a gravação; soltar encerra o fluxo.
-- Whisper transcreve português e inglês, com modo Automático usando `-l auto`.
-- O resultado é inserido no campo original por clipboard/paste; o cursor permanece ao fim do trecho.
-- O histórico, o diagnóstico e a cápsula flutuante de estados estão disponíveis.
-- O áudio temporário é removido após o processamento.
-- Os binários nativos atuais usam arm64 e Metal no Apple Silicon.
-- Os modelos permanecem carregados nos servidores locais durante a sessão.
+- Holding the Right Command key starts recording; releasing it ends the workflow.
+- Whisper transcribes Portuguese and English, with Automatic mode using `-l auto`.
+- The result is inserted into the original field via clipboard/paste; the cursor remains at the end of the text.
+- History, diagnostics, and the floating status capsule are available.
+- Temporary audio is removed after processing.
+- The current native binaries use arm64 and Metal on Apple Silicon.
+- Models remain loaded in local servers during the session.
 
-A cápsula flutuante foi validada visualmente durante uma gravação: fica centralizada horizontalmente no monitor ativo e próxima à parte inferior da área visível, com margem de 24 pontos.
+The floating capsule was visually validated during a recording: it is centered horizontally on the active monitor and close to the bottom of the visible area, with a 24-point margin.
 
-## Arquitetura
+## Architecture
 
-- SwiftUI/AppKit em `Sources/VoxlyApp/`.
-- `DictationCoordinator.swift`: captura, fluxo e estados.
-- `Services.swift`: áudio, inserção, fallback CLI e engines locais.
-- `ModelServers.swift`: ciclo de vida dos servidores locais e HTTP.
-- `ContentView.swift`: modos, histórico e diagnóstico.
-- `VoxlyApp.swift`: menubar, janela e cápsula flutuante.
-- `Stores.swift` / `Models.swift`: persistência local e modelos de dados.
+- SwiftUI/AppKit in `Sources/VoxlyApp/`.
+- `DictationCoordinator.swift`: capture, workflow, and states.
+- `Services.swift`: audio, insertion, CLI fallback, and local engines.
+- `ModelServers.swift`: lifecycle of local servers and HTTP.
+- `ContentView.swift`: modes, history, and diagnostics.
+- `VoxlyApp.swift`: menubar, window, and floating capsule.
+- `Stores.swift` / `Models.swift`: local persistence and data models.
 
-Servidores locais:
+Local servers:
 
 - Whisper: `127.0.0.1:18080/inference`
 - Llama: `127.0.0.1:18081/completion`
 
-Fontes nativas:
+Native sources:
 
 - `native/whisper.cpp/`
 - `native/llama.cpp/`
 
-## Modelos e instalação local
+## Models and Local Installation
 
-Executáveis e modelos ficam em `~/Library/Application Support/Voxly/Models/`:
+Executables and models reside in `~/Library/Application Support/Voxly/Models/`:
 
 ```text
 whisper-cli
@@ -49,44 +49,44 @@ ggml-small.bin
 instruct.gguf
 ```
 
-Os quatro executáveis são builds arm64/Metal. O arquivo `instruct.gguf` é o symlink usado pelo modelo instruct local.
+All four executables are arm64/Metal builds. The `instruct.gguf` file is the symlink used by the local instruct model.
 
-## Comandos de retomada
+## Resume Commands
 
-Abrir o app:
+Open the app:
 
 ```sh
 open /Users/ivanseibel/dev/personal/voxly/build/Voxly.app
 ```
 
-Verificar os servidores:
+Verify servers:
 
 ```sh
 curl http://127.0.0.1:18080/health
 curl http://127.0.0.1:18081/health
 ```
 
-Recompilar e empacotar:
+Rebuild and package:
 
 ```sh
 zsh scripts/package-app.sh
 ```
 
-O script usa a identidade estável `Voxly Local Development`. Não trocar por assinatura ad-hoc, pois isso faz a permissão de Acessibilidade desaparecer a cada build.
+The script uses the stable `Voxly Local Development` identity. Do not replace it with ad-hoc signing, as this causes the Accessibility permission to disappear with each build.
 
-## Desempenho registrado
+## Logged Performance
 
-- Whisper nativo arm64/Metal: aproximadamente 0,90 s para 11 s de áudio após aquecimento.
-- Llama arm64/Metal: aproximadamente 100 tokens/s.
-- Servidores persistentes: aproximadamente 0,38 s para Whisper e 0,31 s para Llama em chamadas diretas.
-- O primeiro uso pode ser mais lento por carregamento do modelo e compilação Metal.
+- Native arm64/Metal Whisper: approximately 0.90s for 11s of audio after warm-up.
+- arm64/Metal Llama: approximately 100 tokens/s.
+- Persistent servers: approximately 0.38s for Whisper and 0.31s for Llama in direct calls.
+- First-time use may be slower due to model loading and Metal compilation.
 
-## Histórico de correções
+## Fix History
 
-- A captura de logs do Whisper foi corrigida para não incluir stderr no texto transcrito.
-- O modo Automático passou a enviar explicitamente `-l auto` ao Whisper.
-- A inserção passou a retornar `.inserted` quando os CGEvents são criados com sucesso e `.copied` apenas no fallback.
-- O modo ativo é restaurado entre sessões por meio do UUID persistido em `activeModeID`.
-- Quebras de linha artificiais no texto inserido foram corrigidas.
-- O refinamento local foi ajustado para usar o endpoint `/completion` com o template do modelo configurado, além de um prompt estrito para preservar fatos e evitar texto introdutório.
-- O logger local `VoxlyLog` grava em `~/Library/Application Support/Voxly/voxly.log` para diagnóstico das inferências.
+- Whisper log capture was fixed to not include stderr in the transcribed text.
+- Automatic mode now explicitly sends `-l auto` to Whisper.
+- Insertion now returns `.inserted` when CGEvents are successfully created and `.copied` only as a fallback.
+- The active mode is restored between sessions via the UUID persisted in `activeModeID`.
+- Artificial line breaks in the inserted text have been fixed.
+- Local refinement was adjusted to use the `/completion` endpoint with the configured model template, along with a strict prompt to preserve facts and avoid introductory text.
+- The local logger `VoxlyLog` writes to `~/Library/Application Support/Voxly/voxly.log` for inference diagnostics.
