@@ -1,0 +1,102 @@
+import AppKit
+import SwiftUI
+
+@main
+struct VoxlyApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
+    var body: some Scene {
+        WindowGroup("Voxly") { ContentView(store: delegate.store, coordinator: delegate.coordinator) }
+            .defaultSize(width: 860, height: 620)
+            .windowResizability(.contentSize)
+        MenuBarExtra("Voxly", systemImage: delegate.store.capsule == .recording ? "waveform" : "quote.bubble") {
+            MenuBarView(store: delegate.store, coordinator: delegate.coordinator)
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let store = VoxlyStore()
+    lazy var coordinator = DictationCoordinator(store: store)
+    private let capsule = CapsulePanelController()
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        ModelServerManager.shared.start()
+        coordinator.onCapsule = { [weak self] visible in self?.capsule.set(visible: visible, state: self?.store.capsule ?? .ready, level: self?.store.audioLevel ?? 0) }
+        coordinator.start()
+    }
+    func applicationWillTerminate(_ notification: Notification) { coordinator.cancel() }
+}
+
+struct MenuBarView: View {
+    @ObservedObject var store: VoxlyStore
+    let coordinator: DictationCoordinator
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack { Circle().fill(store.status.allReady ? .green : .orange).frame(width: 8, height: 8); Text(store.capsule.title).fontWeight(.semibold); Spacer(); Text("local").foregroundStyle(.secondary) }
+            Divider()
+            Text("Modo ativo").font(.caption).foregroundStyle(.secondary)
+            Picker("Modo", selection: $store.activeModeID) { ForEach(store.modes) { Text($0.name).tag($0.id) } }.labelsHidden()
+            Text("Segure \(store.activeMode.shortcut) para ditar").font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Button("Abrir Voxly") { NSApp.activate(ignoringOtherApps: true); NSApp.windows.first?.makeKeyAndOrderFront(nil) }
+            Button("Verificar permissões") { coordinator.refreshStatus() }
+            Button("Sair") { NSApp.terminate(nil) }
+        }
+        .padding(14).frame(width: 260)
+    }
+}
+
+@MainActor
+final class CapsulePanelController {
+    private var panel: NSPanel?
+    func set(visible: Bool, state: CapsuleState, level: Float) {
+        guard visible else { panel?.orderOut(nil); return }
+        let view = NSHostingView(rootView: CapsuleView(state: state, level: level))
+        if panel == nil {
+            let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 286, height: 64), styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]; p.ignoresMouseEvents = true; panel = p
+        }
+        panel?.contentView = view
+        let mouse = NSEvent.mouseLocation
+        panel?.setFrameOrigin(NSPoint(x: mouse.x - 143, y: mouse.y - 94))
+        panel?.orderFrontRegardless()
+    }
+}
+
+struct CapsuleView: View {
+    let state: CapsuleState
+    let level: Float
+    var tint: Color { switch state { case .recording: .green; case .transcribing, .refining: .orange; case .inserted: .green; case .copied: .blue; case .error: .red; case .ready: .secondary } }
+    var isProcessing: Bool { if case .transcribing = state { return true }; if case .refining = state { return true }; return false }
+    var detail: String {
+        switch state {
+        case .recording: ""
+        case .transcribing: "Processando áudio neste Mac"
+        case .refining: "Aplicando modo localmente"
+        case .inserted: "Texto inserido no campo"
+        case .copied: "Resultado no clipboard"
+        case .error: "Verifique Diagnóstico"
+        case .ready: "Pronto para ditar"
+        }
+    }
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack { Circle().fill(tint.opacity(0.18)).frame(width: 34, height: 34); if isProcessing { ProgressView().controlSize(.small).tint(tint) } else { Image(systemName: state == .recording ? "waveform" : "ellipsis").foregroundStyle(tint) } }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(state.title).font(.system(size: 13, weight: .semibold))
+                if state == .recording { CapsuleMeter(level: level).frame(height: 5) } else { Text(detail).font(.caption2).foregroundStyle(.secondary) }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14).frame(width: 286, height: 64)
+        .background(.black.opacity(0.90), in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
+        .foregroundStyle(.white)
+    }
+}
+
+struct CapsuleMeter: View {
+    let level: Float
+    var body: some View { GeometryReader { proxy in Capsule().fill(.white.opacity(0.15)).overlay(alignment: .leading) { Capsule().fill(.green).frame(width: max(6, proxy.size.width * CGFloat(level))) } } }
+}
