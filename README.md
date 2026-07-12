@@ -6,7 +6,7 @@ MVP macOS local: segure Command direito, fale, solte; Voxly transcreve, opcional
 
 Ditado, inserção no cursor, histórico, permissões, modelos locais e aceleração arm64/Metal estão funcionando. Performance melhorou consideravelmente após trocar binários Homebrew x86 por builds nativos arm64/Metal e servidores persistentes.
 
-Pendente: limpeza/otimização textual ainda não é confiável no fluxo completo; último modo entre sessões e texto contínuo sem quebras artificiais precisam de validação. Ver [HANDOFF.md](HANDOFF.md) antes de continuar.
+O estado atual e o histórico técnico estão em [HANDOFF.md](HANDOFF.md). Pendências abertas ficam em [BACKLOG.md](BACKLOG.md).
 
 ## Rodar
 
@@ -29,4 +29,4 @@ O app inicia servidores locais persistentes para Whisper e Llama quando os biná
 
 ## Retomada
 
-Leia [HANDOFF.md](HANDOFF.md) primeiro. Não recompile antes de reproduzir e instrumentar a pendência de limpeza textual.
+Leia [HANDOFF.md](HANDOFF.md) primeiro. Consulte [BACKLOG.md](BACKLOG.md) para verificar pendências abertas.
