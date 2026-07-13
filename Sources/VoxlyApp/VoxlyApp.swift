@@ -8,10 +8,6 @@ struct VoxlyApp: App {
         WindowGroup("Voxly") { ContentView(store: delegate.store, coordinator: delegate.coordinator) }
             .defaultSize(width: 860, height: 620)
             .windowResizability(.contentSize)
-        MenuBarExtra("Voxly", systemImage: delegate.store.capsule == .recording ? "waveform" : "quote.bubble") {
-            MenuBarView(store: delegate.store, coordinator: delegate.coordinator)
-        }
-        .menuBarExtraStyle(.window)
     }
 }
 
@@ -20,12 +16,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = VoxlyStore()
     lazy var coordinator = DictationCoordinator(store: store)
     private let capsule = CapsulePanelController()
+    private var statusItemController: StatusItemController?
     func applicationDidFinishLaunching(_ notification: Notification) {
         ModelServerManager.shared.start()
+        statusItemController = StatusItemController(store: store, coordinator: coordinator)
         coordinator.onCapsule = { [weak self] visible in self?.capsule.set(visible: visible, state: self?.store.capsule ?? .ready, level: self?.store.audioLevel ?? 0) }
         coordinator.start()
     }
-    func applicationWillTerminate(_ notification: Notification) { coordinator.cancel() }
+    func applicationWillTerminate(_ notification: Notification) {
+        coordinator.cancel()
+        ModelServerManager.shared.stop()
+    }
+}
+
+@MainActor
+final class StatusItemController: NSObject {
+    private let statusItem: NSStatusItem
+    private let popover = NSPopover()
+
+    init(store: VoxlyStore, coordinator: DictationCoordinator) {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        super.init()
+
+        if let button = statusItem.button {
+            button.image = Self.icon()
+            button.imagePosition = .imageOnly
+            button.toolTip = "Voxly"
+            button.target = self
+            button.action = #selector(togglePopover(_:))
+        }
+
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentSize = NSSize(width: 260, height: 300)
+        popover.contentViewController = NSHostingController(rootView: MenuBarView(store: store, coordinator: coordinator))
+    }
+
+    @objc private func togglePopover(_ sender: Any?) {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(sender)
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
+    private static func icon() -> NSImage {
+        if let url = Bundle.main.url(forResource: "VoxlyMenuBar", withExtension: "png"), let image = NSImage(contentsOf: url) {
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = true
+            return image
+        }
+        return NSImage(systemSymbolName: "quote.bubble", accessibilityDescription: "Voxly") ?? NSImage()
+    }
 }
 
 struct MenuBarView: View {

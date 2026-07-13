@@ -10,8 +10,34 @@ final class ModelServerManager {
     func start() {
         guard !started else { return }
         started = true
-        whisper = launch(ModelLocator.shared.whisperServer, arguments: ["--host", "127.0.0.1", "--port", "18080", "-m", ModelLocator.shared.whisperModel.path, "-t", "8"])
-        llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "18081", "-m", ModelLocator.shared.instructModel.path, "-ngl", "all", "-t", "8", "-c", "2048", "--no-webui"])
+        Task { @MainActor in
+            if !(await responds(to: LocalModelHTTP.whisperHealthURL)) {
+                whisper = launch(ModelLocator.shared.whisperServer, arguments: ["--host", "127.0.0.1", "--port", "18080", "-m", ModelLocator.shared.whisperModel.path, "-t", "8"])
+            }
+            if !(await responds(to: LocalModelHTTP.llamaHealthURL)) {
+                llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "18081", "-m", ModelLocator.shared.instructModel.path, "-ngl", "all", "-t", "8", "-c", "2048", "--no-webui"])
+            }
+        }
+    }
+
+    func stop() {
+        if whisper?.isRunning == true { whisper?.terminate() }
+        if llama?.isRunning == true { llama?.terminate() }
+        whisper = nil
+        llama = nil
+        started = false
+    }
+
+    private func responds(to url: URL) async -> Bool {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 0.75
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return response is HTTPURLResponse
+        } catch {
+            return false
+        }
     }
 
     private func launch(_ executable: URL, arguments: [String]) -> Process? {
@@ -25,6 +51,8 @@ final class ModelServerManager {
 enum LocalModelHTTP {
     static let whisperURL = URL(string: "http://127.0.0.1:18080/inference")!
     static let llamaURL = URL(string: "http://127.0.0.1:18081/v1/chat/completions")!
+    static let whisperHealthURL = URL(string: "http://127.0.0.1:18080/health")!
+    static let llamaHealthURL = URL(string: "http://127.0.0.1:18081/health")!
 
     static func multipart(url: URL, file: URL, fields: [String: String]) async throws -> Data {
         let boundary = "Boundary-\(UUID().uuidString)"
