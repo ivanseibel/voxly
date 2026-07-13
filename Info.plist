@@ -5,6 +5,7 @@
   <key>CFBundleDevelopmentRegion</key><string>pt_BR</string>
   <key>CFBundleExecutable</key><string>Voxly</string>
   <key>CFBundleIdentifier</key><string>dev.ivanseibel.voxly</string>
+  <key>CFBundleIconFile</key><string>Voxly.icns</string>
   <key>CFBundleName</key><string>Voxly</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
