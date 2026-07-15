@@ -20,7 +20,10 @@ final class DictationCoordinator: NSObject {
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             Task { @MainActor in self?.receive(event) }
         }
-        NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in self?.receive(event); return event }
+        NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+            Task { @MainActor in self?.receive(event) }
+            return event
+        }
     }
     func refreshStatus() { store.status = permissions.refresh() }
     func requestMicrophone() async { _ = await permissions.requestMicrophone(); refreshStatus() }
@@ -78,7 +81,7 @@ final class DictationCoordinator: NSObject {
                     final = raw; store.lastMessage = "Refinamento falhou; texto bruto preservado"
                 }
             }
-            let result = target.map { inserter.insert(final, into: $0) } ?? .failed
+            let result = target.map { inserter.insert(final + " ", into: $0) } ?? .failed
             store.addHistory(raw: raw, final: final, result: result)
             store.capsule = result == .inserted ? .inserted : .copied
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
