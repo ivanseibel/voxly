@@ -5,7 +5,7 @@ import SwiftUI
 struct VoxlyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     var body: some Scene {
-        WindowGroup("Voxly") { ContentView(store: delegate.store, coordinator: delegate.coordinator) }
+        WindowGroup("Voxly", id: "main") { ContentView(store: delegate.store, coordinator: delegate.coordinator) }
             .defaultSize(width: 860, height: 620)
             .windowResizability(.contentSize)
     }
@@ -74,6 +74,7 @@ final class StatusItemController: NSObject {
 struct MenuBarView: View {
     @ObservedObject var store: VoxlyStore
     let coordinator: DictationCoordinator
+    @Environment(\.openWindow) private var openWindow
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Circle().fill(store.status.allReady ? .green : .orange).frame(width: 8, height: 8); Text(store.capsule.title).fontWeight(.semibold); Spacer(); Text("local").foregroundStyle(.secondary) }
@@ -82,7 +83,10 @@ struct MenuBarView: View {
             Picker("Modo", selection: $store.activeModeID) { ForEach(store.modes) { Text($0.name).tag($0.id) } }.labelsHidden()
             Text("Segure \(store.activeMode.shortcut) para ditar").font(.caption).foregroundStyle(.secondary)
             Divider()
-            Button("Abrir Voxly") { NSApp.activate(ignoringOtherApps: true); NSApp.windows.first?.makeKeyAndOrderFront(nil) }
+            Button("Abrir Voxly") {
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
             Button("Verificar permissões") { coordinator.refreshStatus() }
             Button("Sair") { NSApp.terminate(nil) }
         }
