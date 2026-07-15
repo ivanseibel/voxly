@@ -15,7 +15,7 @@ final class ModelServerManager {
                 whisper = launch(ModelLocator.shared.whisperServer, arguments: ["--host", "127.0.0.1", "--port", "18080", "-m", ModelLocator.shared.whisperModel.path, "-t", "8"])
             }
             if !(await responds(to: LocalModelHTTP.llamaHealthURL)) {
-                llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "18081", "-m", ModelLocator.shared.instructModel.path, "-ngl", "all", "-t", "8", "-c", "2048", "--no-webui"])
+                llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "18081", "-m", ModelLocator.shared.instructModel.path, "-ngl", "all", "-t", "8", "-c", "2048", "--reasoning", "off", "--no-webui"])
             }
         }
     }
