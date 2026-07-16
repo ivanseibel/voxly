@@ -60,7 +60,12 @@ final class ModelLocator: @unchecked Sendable {
     var instructModel: URL { root.appendingPathComponent("instruct.gguf") }
     var whisperServer: URL { root.appendingPathComponent("whisper-server") }
     var llamaServer: URL { root.appendingPathComponent("llama-server") }
-    var isInstalled: Bool { [whisper, whisperModel].allSatisfy { FileManager.default.fileExists(atPath: $0.path) } }
+    var isInstalled: Bool {
+        FileManager.default.isExecutableFile(atPath: whisper.path)
+            && FileManager.default.fileExists(atPath: whisperModel.path)
+            && FileManager.default.isExecutableFile(atPath: llama.path)
+            && FileManager.default.fileExists(atPath: instructModel.path)
+    }
     var installFolder: String { root.path }
 }
 
@@ -191,6 +196,9 @@ struct LocalRefiner: Sendable {
         guard !mode.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return raw }
         let locator = ModelLocator.shared
         guard FileManager.default.isExecutableFile(atPath: locator.llama.path) else { throw VoxlyError.executableMissing("llama.cpp") }
+        guard FileManager.default.fileExists(atPath: locator.instructModel.path) else {
+            throw VoxlyError.executableMissing("modelo de refinamento (instruct.gguf)")
+        }
         let languageInstruction: String
         switch mode.language {
         case .portuguese:
