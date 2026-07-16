@@ -215,12 +215,13 @@ struct LocalRefiner: Sendable {
             </text>
             """
         do {
-            let result = (try await LocalModelHTTP.chat(system: systemPrompt, prompt: userPrompt)).trimmingCharacters(in: .whitespacesAndNewlines)
+            let response = (try await LocalModelHTTP.chat(system: systemPrompt, prompt: userPrompt)).trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = Self.stripReasoning(response)
             if !result.isEmpty {
                 VoxlyLog.log("Refinamento via servidor OK — modo: \(mode.name), resultado: \(result.prefix(80))...")
                 return result
             }
-            VoxlyLog.log("Servidor Llama retornou resultado vazio — fallback para CLI")
+            VoxlyLog.log("Servidor Llama retornou apenas raciocínio/vazio — fallback para CLI")
         } catch {
             VoxlyLog.log("Erro HTTP no refinamento: \(error) — fallback para CLI")
         }
@@ -230,11 +231,37 @@ struct LocalRefiner: Sendable {
     private func refineCLI(_ raw: String, mode: DictationMode, systemPrompt: String, userPrompt: String, locator: ModelLocator) throws -> String {
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("voxly-refined-\(UUID().uuidString).txt")
         defer { try? FileManager.default.removeItem(at: outputURL) }
-        _ = try LocalProcess.run(executable: locator.llama, arguments: ["-m", locator.instructModel.path, "--conversation", "--single-turn", "--system-prompt", systemPrompt, "-p", userPrompt, "-n", "256", "--temp", "0", "-t", "8", "-ngl", "all", "--no-display-prompt", "--no-perf", "--log-disable", "--output", outputURL.path])
+        _ = try LocalProcess.run(executable: locator.llama, arguments: ["-m", locator.instructModel.path, "--conversation", "--single-turn", "--system-prompt", systemPrompt, "-p", userPrompt, "-n", "256", "--temp", "0", "-t", "8", "-ngl", "all", "--reasoning", "off", "--no-display-prompt", "--no-perf", "--log-disable", "--output", outputURL.path])
         let transcript = try String(contentsOf: outputURL, encoding: .utf8)
-        let result = (transcript.components(separatedBy: "\nAssistant:\n").last ?? transcript).trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = Self.stripReasoning(transcript.components(separatedBy: "\nAssistant:\n").last ?? transcript)
         guard !result.isEmpty else { throw VoxlyError.emptyResult }
         return result
+    }
+
+    /// Defensively removes chain-of-thought/reasoning content that some instruct models emit
+    /// despite `--reasoning off`, so it never leaks into the inserted text. If the reasoning
+    /// block is left unterminated (e.g. cut off by the token budget), everything from its start
+    /// marker onward is dropped — the caller treats an empty result as a failure and falls back
+    /// to the raw transcription.
+    static func stripReasoning(_ text: String) -> String {
+        let markers: [(start: String, end: String)] = [
+            ("<think>", "</think>"),
+            ("<thinking>", "</thinking>"),
+            ("[start thinking]", "[end thinking]"),
+            ("<|start_thinking|>", "<|end_thinking|>")
+        ]
+        var result = text
+        for marker in markers {
+            while let startRange = result.range(of: marker.start, options: .caseInsensitive) {
+                if let endRange = result.range(of: marker.end, options: .caseInsensitive, range: startRange.upperBound..<result.endIndex) {
+                    result.removeSubrange(startRange.lowerBound..<endRange.upperBound)
+                } else {
+                    result.removeSubrange(startRange.lowerBound..<result.endIndex)
+                    break
+                }
+            }
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
