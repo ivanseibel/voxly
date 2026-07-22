@@ -79,16 +79,16 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Circle().fill(store.status.allReady ? .green : .orange).frame(width: 8, height: 8); Text(store.capsule.title).fontWeight(.semibold); Spacer(); Text("local").foregroundStyle(.secondary) }
             Divider()
-            Text("Modo ativo").font(.caption).foregroundStyle(.secondary)
-            Picker("Modo", selection: $store.activeModeID) { ForEach(store.modes) { Text($0.name).tag($0.id) } }.labelsHidden()
-            Text("Segure \(store.activeMode.shortcut) para ditar").font(.caption).foregroundStyle(.secondary)
+            Text("Active mode").font(.caption).foregroundStyle(.secondary)
+            Picker("Mode", selection: $store.activeModeID) { ForEach(store.modes) { Text($0.name).tag($0.id) } }.labelsHidden()
+            Text("Hold \(store.activeMode.shortcut) to dictate").font(.caption).foregroundStyle(.secondary)
             Divider()
-            Button("Abrir Voxly") {
+            Button("Open Voxly") {
                 openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
             }
-            Button("Verificar permissões") { coordinator.refreshStatus() }
-            Button("Sair") { NSApp.terminate(nil) }
+            Button("Check permissions") { coordinator.refreshStatus() }
+            Button("Quit") { NSApp.terminate(nil) }
         }
         .padding(14).frame(width: 260)
     }
@@ -128,12 +128,12 @@ struct CapsuleView: View {
     var detail: String {
         switch state {
         case .recording: ""
-        case .transcribing: "Processando áudio neste Mac"
-        case .refining: "Aplicando modo localmente"
-        case .inserted: "Texto inserido no campo"
-        case .copied: "Resultado no clipboard"
-        case .error: "Verifique Diagnóstico"
-        case .ready: "Pronto para ditar"
+        case .transcribing: "Processing audio on this Mac"
+        case .refining: "Applying mode locally"
+        case .inserted: "Text inserted into field"
+        case .copied: "Result in clipboard"
+        case .error: "Check Diagnostics"
+        case .ready: "Ready to dictate"
         }
     }
     var body: some View {

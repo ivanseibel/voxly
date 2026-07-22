@@ -32,18 +32,18 @@ final class DictationCoordinator: NSObject {
     func requestAccessibility() { permissions.requestAccessibility(); refreshStatus() }
     func receive(type: NSEvent.EventType, keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         if type == .keyDown, keyCode == 53 { cancel(); return }
-        guard store.activeMode.shortcut == "⌘ direito" else { return }
+        guard store.activeMode.shortcut == "⌘ Right" else { return }
         guard keyCode == 54 else { return } // right Command hardware key
         let pressed = modifierFlags.contains(.command)
         if pressed && !isRecording { begin() }
         if !pressed && isRecording { finish() }
     }
     func begin() {
-        guard store.status.microphone else { fail("Permita Microfone para gravar"); return }
-        guard store.status.accessibility else { fail("Permita Acessibilidade para inserir texto"); return }
-        guard store.status.models else { fail("Instale modelos locais antes de ditar"); return }
+        guard store.status.microphone else { fail("Allow Microphone to record"); return }
+        guard store.status.accessibility else { fail("Allow Accessibility to insert text"); return }
+        guard store.status.models else { fail("Install local models before dictating"); return }
         target = inserter.captureTarget()
-        do { try recorder.start(); recordingStartedAt = Date(); isRecording = true; store.capsule = .recording; store.lastMessage = "Gravando — solte ⌘ direito"; onCapsule?(true) }
+        do { try recorder.start(); recordingStartedAt = Date(); isRecording = true; store.capsule = .recording; store.lastMessage = "Recording — release ⌘ Right"; onCapsule?(true) }
         catch { fail(error.localizedDescription) }
     }
     private var recordingStartedAt: Date?
@@ -54,22 +54,22 @@ final class DictationCoordinator: NSObject {
         let heldSeconds = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
         guard heldSeconds >= 0.3 else {
-            VoxlyLog.log("Toque muito curto (\(String(format: "%.2f", heldSeconds))s) — descartando sem transcrever")
+            VoxlyLog.log("Tap too short (\(String(format: "%.2f", heldSeconds))s) — discarding without transcribing")
             if let audio { try? FileManager.default.removeItem(at: audio) }
-            store.capsule = .ready; store.lastMessage = "Toque muito curto — segure ⌘ direito enquanto fala"; onCapsule?(false)
+            store.capsule = .ready; store.lastMessage = "Tap too short — hold ⌘ Right while speaking"; onCapsule?(false)
             return
         }
         store.capsule = .transcribing
-        store.lastMessage = "Processando áudio localmente"
+        store.lastMessage = "Processing audio locally"
         onCapsule?(true)
         Task { await process(audio) }
     }
     func cancel() {
         guard isRecording || store.capsule != .ready else { return }
-        isRecording = false; _ = recorder.stopAndRemove(); recorder.discard(); store.audioLevel = 0; store.capsule = .ready; store.lastMessage = "Ditado cancelado"; onCapsule?(false)
+        isRecording = false; _ = recorder.stopAndRemove(); recorder.discard(); store.audioLevel = 0; store.capsule = .ready; store.lastMessage = "Dictation canceled"; onCapsule?(false)
     }
     private func process(_ audio: URL?) async {
-        guard let audio else { fail("Nenhum áudio útil capturado"); return }
+        guard let audio else { fail("No usable audio captured"); return }
         let startedAt = Date()
         var shouldRemoveAudio = true
         defer { if shouldRemoveAudio { try? FileManager.default.removeItem(at: audio) } }
@@ -79,18 +79,18 @@ final class DictationCoordinator: NSObject {
             let mode = store.activeMode
             let final: String
             if !mode.usesRefinement {
-                VoxlyLog.log("Modo '\(mode.name)' sem refinamento (usesRefinement=false)")
+                VoxlyLog.log("Mode '\(mode.name)' has no refinement (usesRefinement=false)")
                 final = raw
             }
             else {
-                VoxlyLog.log("Iniciando refinamento — modo: '\(mode.name)', instruções: \(mode.instructions.prefix(60))...")
+                VoxlyLog.log("Starting refinement — mode: '\(mode.name)', instructions: \(mode.instructions.prefix(60))...")
                 store.capsule = .refining(mode.name)
-                store.lastMessage = "Ajustando texto localmente"
+                store.lastMessage = "Refining text locally"
                 onCapsule?(true)
                 do { final = try await Task.detached { [refiner] in try await refiner.refine(raw, mode: mode) }.value }
                 catch {
-                    VoxlyLog.log("Refinamento falhou completamente: \(error) — usando texto bruto")
-                    final = raw; store.lastMessage = "Refinamento falhou; texto bruto preservado"
+                    VoxlyLog.log("Refinement failed completely: \(error) — using raw text")
+                    final = raw; store.lastMessage = "Refinement failed; raw text kept"
                 }
             }
             let result = target.map { inserter.insert(final + " ", into: $0) } ?? .failed
@@ -98,11 +98,11 @@ final class DictationCoordinator: NSObject {
             store.capsule = result == .inserted ? .inserted : .copied
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
             let transcribed = String(format: "%.1f", transcriptionSeconds)
-            store.lastMessage = result == .inserted ? "Texto inserido · processamento \(elapsed)s (Whisper \(transcribed)s)" : "Texto no clipboard · processamento \(elapsed)s"
+            store.lastMessage = result == .inserted ? "Text inserted · processed \(elapsed)s (Whisper \(transcribed)s)" : "Text in clipboard · processed \(elapsed)s"
             onCapsule?(true); DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in self?.store.capsule = .ready; self?.onCapsule?(false) }
         } catch {
             shouldRemoveAudio = false
-            if let saved = Self.preserveAudioForDebug(audio) { VoxlyLog.log("Áudio da falha preservado em: \(saved.path)") }
+            if let saved = Self.preserveAudioForDebug(audio) { VoxlyLog.log("Audio from failure preserved at: \(saved.path)") }
             fail(error.localizedDescription)
         }
     }
@@ -115,7 +115,7 @@ final class DictationCoordinator: NSObject {
         catch { return nil }
     }
     private func fail(_ message: String) {
-        VoxlyLog.log("Falha: \(message)")
+        VoxlyLog.log("Failure: \(message)")
         store.capsule = .error(message); store.lastMessage = message; onCapsule?(true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
             guard let self, case .error = self.store.capsule else { return }

@@ -66,7 +66,7 @@ enum LocalModelHTTP {
         var request = URLRequest(url: url); request.httpMethod = "POST"; request.httpBody = body
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VoxlyError.processFailed("Servidor Whisper indisponível") }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VoxlyError.processFailed("Whisper server unavailable") }
         return data
     }
 
@@ -77,7 +77,7 @@ enum LocalModelHTTP {
         ], max_tokens: 256, temperature: 0.0, stream: false)
         var request = URLRequest(url: llamaURL); request.httpMethod = "POST"; request.httpBody = try JSONEncoder().encode(payload); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VoxlyError.processFailed("Servidor Llama indisponível") }
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VoxlyError.processFailed("Llama server unavailable") }
         let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
         return chatResponse.choices.first?.message.content ?? ""
     }

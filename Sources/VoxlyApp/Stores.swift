@@ -9,7 +9,7 @@ final class VoxlyStore: ObservableObject {
     @Published var status = PermissionStatus()
     @Published var capsule: CapsuleState = .ready
     @Published var audioLevel: Float = 0
-    @Published var lastMessage = "Pronto para ditar"
+    @Published var lastMessage = "Ready to dictate"
 
     private let defaults = UserDefaults.standard
     private let fileManager = FileManager.default

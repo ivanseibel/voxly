@@ -26,10 +26,10 @@ enum VoxlyError: LocalizedError {
     case noAudio, executableMissing(String), processFailed(String), emptyResult
     var errorDescription: String? {
         switch self {
-        case .noAudio: "Nenhum áudio útil capturado"
-        case .executableMissing(let name): "Motor local não instalado: \(name)"
+        case .noAudio: "No usable audio captured"
+        case .executableMissing(let name): "Local engine not installed: \(name)"
         case .processFailed(let message): message
-        case .emptyResult: "Motor local não retornou texto"
+        case .emptyResult: "Local engine returned no text"
         }
     }
 }
@@ -82,27 +82,27 @@ final class AudioRecorder: @unchecked Sendable {
         try attemptStart(retriesRemaining: 7)
     }
     private func attemptStart(retriesRemaining: Int) throws {
-        // Reconstrói o motor a cada nova tentativa: um AUGraph que falhou ao iniciar pode ficar
-        // em estado inconsistente e um simples stop()/reset() nem sempre é suficiente para
-        // recuperar a entrada de um dispositivo Bluetooth (perfil HFP) ainda renegociando.
+        // Rebuilds the engine on each new attempt: an AUGraph that failed to start can end up in
+        // an inconsistent state, and a simple stop()/reset() isn't always enough to recover
+        // input from a Bluetooth device (HFP profile) still renegotiating.
         if retriesRemaining < 7 { engine = AVAudioEngine() }
         let format = engine.inputNode.outputFormat(forBus: 0)
         guard format.channelCount > 0, format.sampleRate > 0 else {
             if retriesRemaining > 0 {
-                VoxlyLog.log("Formato de entrada inválido — aguardando negociação do dispositivo Bluetooth (\(retriesRemaining) tentativas restantes)")
+                VoxlyLog.log("Invalid input format — waiting for Bluetooth device negotiation (\(retriesRemaining) retries remaining)")
                 Thread.sleep(forTimeInterval: 0.3)
                 return try attemptStart(retriesRemaining: retriesRemaining - 1)
             }
-            throw VoxlyError.processFailed("Dispositivo de entrada de áudio indisponível — verifique o microfone selecionado")
+            throw VoxlyError.processFailed("Audio input device unavailable — check the selected microphone")
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("voxly-\(UUID().uuidString).wav")
         let audioFile = try AVAudioFile(forWriting: url, settings: format.settings)
         file = audioFile
         self.url = url
         bufferCount = 0; frameCount = 0; writeErrorLogged = false
-        VoxlyLog.log("Gravador iniciado — formato: \(format)")
-        // format: nil deixa o AVAudioEngine usar o formato real do hardware no momento da instalação do tap,
-        // evitando exceção do AVFoundation quando o dispositivo de entrada (ex.: Bluetooth) troca de formato.
+        VoxlyLog.log("Recorder started — format: \(format)")
+        // format: nil lets AVAudioEngine use the hardware's real format at tap installation time,
+        // avoiding an AVFoundation exception when the input device (e.g. Bluetooth) changes format.
         engine.inputNode.installTap(onBus: 0, bufferSize: 2_048, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             do {
@@ -110,7 +110,7 @@ final class AudioRecorder: @unchecked Sendable {
                 self.bufferCount += 1
                 self.frameCount += Int64(buffer.frameLength)
             } catch {
-                if !self.writeErrorLogged { self.writeErrorLogged = true; VoxlyLog.log("Erro ao escrever buffer de áudio: \(error)") }
+                if !self.writeErrorLogged { self.writeErrorLogged = true; VoxlyLog.log("Error writing audio buffer: \(error)") }
             }
             guard let channels = buffer.floatChannelData else { return }
             let samples = Int(buffer.frameLength)
@@ -123,7 +123,7 @@ final class AudioRecorder: @unchecked Sendable {
             engine.inputNode.removeTap(onBus: 0)
             file = nil
             if retriesRemaining > 0 {
-                VoxlyLog.log("engine.start() falhou (\(error)) — tentando novamente (\(retriesRemaining) tentativas restantes)")
+                VoxlyLog.log("engine.start() failed (\(error)) — retrying (\(retriesRemaining) retries remaining)")
                 Thread.sleep(forTimeInterval: 0.4)
                 return try attemptStart(retriesRemaining: retriesRemaining - 1)
             }
@@ -134,7 +134,7 @@ final class AudioRecorder: @unchecked Sendable {
         engine.stop(); engine.inputNode.removeTap(onBus: 0)
         let sampleRate = file?.fileFormat.sampleRate ?? 0
         let seconds = sampleRate > 0 ? Double(frameCount) / sampleRate : 0
-        VoxlyLog.log("Gravador finalizado — \(bufferCount) buffers, \(frameCount) frames, ~\(String(format: "%.2f", seconds))s")
+        VoxlyLog.log("Recorder finished — \(bufferCount) buffers, \(frameCount) frames, ~\(String(format: "%.2f", seconds))s")
         file = nil
         return url
     }
@@ -150,19 +150,19 @@ struct LocalTranscriber: Sendable {
     func transcribe(audio: URL, language: DictationLanguage) async throws -> String {
         let attributes = try? FileManager.default.attributesOfItem(atPath: audio.path)
         let audioBytes = (attributes?[.size] as? Int) ?? -1
-        VoxlyLog.log("Transcrevendo áudio (\(audioBytes) bytes, idioma: \(language.whisperCode))")
+        VoxlyLog.log("Transcribing audio (\(audioBytes) bytes, language: \(language.whisperCode))")
         do {
             let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: ["response_format": "json", "language": language.whisperCode, "temperature": "0"])
             let raw = try JSONDecoder().decode(LocalModelHTTP.WhisperResponse.self, from: data).text
             let cleaned = cleanText(raw)
             if !cleaned.isEmpty { return cleaned }
-            VoxlyLog.log("Servidor Whisper não retornou fala real — tentando fallback CLI")
+            VoxlyLog.log("Whisper server returned no real speech — trying CLI fallback")
         } catch {
-            VoxlyLog.log("Erro HTTP na transcrição: \(error) — tentando fallback CLI")
+            VoxlyLog.log("HTTP error during transcription: \(error) — trying CLI fallback")
         }
         let cliCleaned = cleanText(try transcribeCLI(audio: audio, language: language))
         guard !cliCleaned.isEmpty else {
-            VoxlyLog.log("Nenhuma fala detectada no áudio")
+            VoxlyLog.log("No speech detected in audio")
             throw VoxlyError.noAudio
         }
         return cliCleaned
@@ -178,13 +178,13 @@ struct LocalTranscriber: Sendable {
     private func transcribeCLI(audio: URL, language: DictationLanguage) throws -> String {
         let locator = ModelLocator.shared
         guard FileManager.default.isExecutableFile(atPath: locator.whisper.path) else { throw VoxlyError.executableMissing("whisper.cpp") }
-        guard FileManager.default.fileExists(atPath: locator.whisperModel.path) else { throw VoxlyError.executableMissing("modelo Whisper") }
+        guard FileManager.default.fileExists(atPath: locator.whisperModel.path) else { throw VoxlyError.executableMissing("Whisper model") }
         var arguments = ["-m", locator.whisperModel.path, "-f", audio.path, "--no-timestamps", "--no-prints", "-t", "8"]
         arguments += ["-l", language.whisperCode]
         let output = try LocalProcess.run(executable: locator.whisper, arguments: arguments)
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            VoxlyLog.log("CLI whisper-cli também retornou vazio — args: \(arguments.joined(separator: " "))")
+            VoxlyLog.log("whisper-cli CLI also returned empty — args: \(arguments.joined(separator: " "))")
             throw VoxlyError.emptyResult
         }
         return text
@@ -197,7 +197,7 @@ struct LocalRefiner: Sendable {
         let locator = ModelLocator.shared
         guard FileManager.default.isExecutableFile(atPath: locator.llama.path) else { throw VoxlyError.executableMissing("llama.cpp") }
         guard FileManager.default.fileExists(atPath: locator.instructModel.path) else {
-            throw VoxlyError.executableMissing("modelo de refinamento (instruct.gguf)")
+            throw VoxlyError.executableMissing("refinement model (instruct.gguf)")
         }
         let languageInstruction: String
         switch mode.language {
@@ -226,12 +226,12 @@ struct LocalRefiner: Sendable {
             let response = (try await LocalModelHTTP.chat(system: systemPrompt, prompt: userPrompt)).trimmingCharacters(in: .whitespacesAndNewlines)
             let result = Self.stripReasoning(response)
             if !result.isEmpty {
-                VoxlyLog.log("Refinamento via servidor OK — modo: \(mode.name), resultado: \(result.prefix(80))...")
+                VoxlyLog.log("Refinement via server OK — mode: \(mode.name), result: \(result.prefix(80))...")
                 return result
             }
-            VoxlyLog.log("Servidor Llama retornou apenas raciocínio/vazio — fallback para CLI")
+            VoxlyLog.log("Llama server returned only reasoning/empty — falling back to CLI")
         } catch {
-            VoxlyLog.log("Erro HTTP no refinamento: \(error) — fallback para CLI")
+            VoxlyLog.log("HTTP error during refinement: \(error) — falling back to CLI")
         }
         return try refineCLI(raw, mode: mode, systemPrompt: systemPrompt, userPrompt: userPrompt, locator: locator)
     }
@@ -281,7 +281,7 @@ enum LocalProcess {
         try process.run(); process.waitUntilExit()
         let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         let error = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        guard process.terminationStatus == 0 else { throw VoxlyError.processFailed(error.isEmpty ? "Motor local falhou" : error) }
+        guard process.terminationStatus == 0 else { throw VoxlyError.processFailed(error.isEmpty ? "Local engine failed" : error) }
         return output
     }
 }
