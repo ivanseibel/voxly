@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:voxly}",
+            "name": "Debug Voxly",
+            "target": "Voxly",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Voxly"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:voxly}",
+            "name": "Release Voxly",
+            "target": "Voxly",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Voxly"
+        }
+    ]
+}
