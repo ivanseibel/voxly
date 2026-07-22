@@ -6,4 +6,4 @@ Updated on 2026-07-12.
 
 No pending tasks registered.
 
-The current status, architecture, resume commands, metrics, and fix history are documented in [HANDOFF.md](HANDOFF.md).
+This file is the single source for current status and pending work.
