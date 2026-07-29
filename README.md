@@ -20,6 +20,8 @@ Each mode can use any modifier key as its hold-to-dictate shortcut:
 
 **To change:** Open Voxly → Modes → select a mode → click the `Global shortcut` button → press the desired modifier key. Duplicate shortcuts across modes show an inline error. Right Command is the default for new modes.
 
+**Add / delete modes:** Click `+ New mode` in the Modes view (max 4 modes). Click the trash icon on a mode row to delete it (minimum 1 mode must remain).
+
 Dictation starts when a mode's shortcut is held and stops when released. The mode matching the pressed shortcut is used for transcription and refinement. Escape cancels an active dictation regardless of current mode.
 
 ## Quick Command (Build + Install)
