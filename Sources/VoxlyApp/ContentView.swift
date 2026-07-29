@@ -49,12 +49,12 @@ struct ModesView: View {
                         HStack(spacing: 10) { Circle().fill(mode.id == store.activeModeID ? .green : .clear).frame(width: 7, height: 7); VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text(mode.language.rawValue).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     }.buttonStyle(NavButton(selected: mode.id == (selectedID ?? store.activeModeID)))
                 }
-                Button { let new = DictationMode(name: "New mode", shortcut: "⌘ Right", language: .automatic, instructions: ""); store.modes.append(new); selectedID = new.id; draft = new } label: { Label("New mode", systemImage: "plus") }.padding(.top, 8)
+                Button { let new = DictationMode(name: "New mode", language: .automatic, instructions: ""); store.modes.append(new); selectedID = new.id; draft = new } label: { Label("New mode", systemImage: "plus") }.padding(.top, 8)
                 Spacer()
             }.padding(28).frame(width: 300).background(VoxlyColor.canvas)
             Divider().overlay(VoxlyColor.line)
             if let binding = Binding($draft) {
-                ModeEditor(mode: binding, error: $error, save: save)
+                ModeEditor(mode: binding, error: $error, save: save, store: store)
             } else { ContentUnavailableView("Select a mode", systemImage: "waveform", description: Text("Configure language, shortcut, and local instructions.")) }
         }.onAppear { selectedID = store.activeModeID; draft = selected }
     }
@@ -70,11 +70,12 @@ struct ModeEditor: View {
     @Binding var mode: DictationMode
     @Binding var error: String
     let save: () -> Void
+    let store: VoxlyStore
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 22) {
             Text("Edit mode").font(.title2.weight(.semibold))
             Field(label: "Name") { TextField("Name", text: $mode.name) }
-            HStack(spacing: 14) { Field(label: "Global shortcut") { Text("Right ⌘ — press and hold").foregroundStyle(VoxlyColor.muted) }; Field(label: "Language") { Picker("Language", selection: $mode.language) { ForEach(DictationLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) } }
+            HStack(spacing: 14) { ShortcutRecorder(keyCode: $mode.shortcutKeyCode, store: store, modeID: mode.id).id(mode.id); Field(label: "Language") { Picker("Language", selection: $mode.language) { ForEach(DictationLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) } }
             Field(label: "Local instructions") { TextEditor(text: $mode.instructions).font(.body).scrollContentBackground(.hidden).frame(minHeight: 145).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
             HStack { VStack(alignment: .leading, spacing: 2) { Text("Output").font(.caption.weight(.medium)).foregroundStyle(VoxlyColor.muted); Text("Insert automatically; clipboard as fallback").font(.subheadline) }; Spacer(); Toggle("", isOn: $mode.automaticInsert).labelsHidden().toggleStyle(.switch) }
                 .padding(12).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line))
@@ -108,3 +109,83 @@ struct DiagnosisView: View {
     }.padding(30) }
 }
 struct CheckRow: View { let title: String; let detail: String; let ok: Bool; var actionLabel = "Allow"; let action: () -> Void; var body: some View { HStack(spacing: 14) { Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill").foregroundStyle(ok ? .green : .orange).font(.title3); VStack(alignment: .leading, spacing: 3) { Text(title).fontWeight(.medium); Text(detail).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); if !ok { Button(actionLabel, action: action).buttonStyle(.bordered) } }.padding(13).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line)) } }
+
+struct ShortcutRecorder: View {
+    @Binding var keyCode: Int
+    let store: VoxlyStore
+    let modeID: UUID
+    @State private var isRecording = false
+    @State private var error = ""
+    @State private var monitor: Any?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("GLOBAL SHORTCUT").font(.system(size: 10, weight: .semibold)).tracking(0.8).foregroundStyle(VoxlyColor.muted)
+                Button {
+                    guard !isRecording else { stopListening(); return }
+                    isRecording = true; error = ""
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { beginListening() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(isRecording ? "Press key…" : DictationMode.name(for: keyCode))
+                            .foregroundStyle(isRecording ? .green : VoxlyColor.ink)
+                        if isRecording {
+                            Image(systemName: "record.circle").foregroundStyle(.red).font(.caption)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+                .background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line))
+            }
+            if !error.isEmpty {
+                Text(error).font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .onDisappear { stopListening() }
+    }
+
+    private func beginListening() {
+        guard isRecording else { return }
+        let m = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
+            if event.type == .keyDown {
+                let kc = Int(event.keyCode)
+                if kc == 53 { // Escape
+                    self.stopListening(); self.error = ""
+                    return nil
+                }
+                self.error = "Press a modifier key (⌘ ⇧ ⌥ ⌃ Fn)"
+                return event
+            }
+            let kc = Int(event.keyCode)
+            guard DictationMode.modifierKeyCodes.contains(kc) else { return event }
+            let flag = DictationMode.modifierFlag(for: kc)
+            guard event.modifierFlags.contains(flag) else { return event }
+            // Mark captured immediately to prevent race with async callback
+            self.isRecording = false
+            DispatchQueue.main.async { self.capture(kc) }
+            return nil
+        }
+        monitor = m
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            guard self.isRecording else { return }
+            self.stopListening(); self.error = "Timeout — press a modifier key"
+        }
+    }
+
+    private func capture(_ kc: Int) {
+        if store.shortcutKeyTaken(kc, excluding: modeID) {
+            error = "Shortcut already in use by another mode"
+        } else {
+            keyCode = kc; error = ""
+        }
+    }
+
+    private func stopListening() {
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        isRecording = false
+    }
+}
