@@ -160,6 +160,7 @@ struct ShortcutRecorder: View {
     private func beginListening() {
         guard isRecording else { return }
         let m = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
+            guard self.isRecording else { self.stopListening(); return event }
             if event.type == .keyDown {
                 let kc = Int(event.keyCode)
                 if kc == 53 { // Escape
@@ -173,8 +174,8 @@ struct ShortcutRecorder: View {
             guard DictationMode.modifierKeyCodes.contains(kc) else { return event }
             let flag = DictationMode.modifierFlag(for: kc)
             guard event.modifierFlags.contains(flag) else { return event }
-            // Mark captured immediately to prevent race with async callback
-            self.isRecording = false
+            // Mark captured — remove monitor immediately to prevent stray captures
+            self.stopListening()
             DispatchQueue.main.async { self.capture(kc) }
             return nil
         }
