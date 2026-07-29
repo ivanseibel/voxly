@@ -25,7 +25,7 @@ People with Apple Silicon Macs who frequently write in text fields across multip
 ### Included
 
 - Native menubar application for recent macOS on Apple Silicon (M1 or later).
-- Global activation via press-and-hold; Right Command is the default shortcut and other shortcuts can be configured.
+- Global activation via press-and-hold; each mode has its own configurable modifier-key shortcut.
 - Audio capture, local transcription, and discarding of audio immediately after transcription.
 - Optimized recognition for Portuguese and English, with language selection per mode.
 - Saved modes with shortcut, language, instructions, model, and output action.
@@ -46,7 +46,7 @@ People with Apple Silicon Macs who frequently write in text fields across multip
 ## 4. Main Flow
 
 1. The user places the cursor in a text field of a compatible application.
-2. Holds down the shortcut of the active mode; Voxly records the current app and focus and starts capture.
+2. Holds down the shortcut of any mode; Voxly records the current app and focus and starts capture with that mode's settings.
 3. The floating capsule near the cursor shows the audio level and the `Recording` state.
 4. Upon releasing the shortcut, Voxly ends capture and shows `Transcribing`.
 5. The local engine generates the raw text; audio is removed from memory and any temporary file.
@@ -59,7 +59,7 @@ People with Apple Silicon Macs who frequently write in text fields across multip
 ### 5.1 Capture & Shortcuts
 
 - Voxly must monitor global shortcuts even when it is not in the foreground.
-- The default shortcut must be the Right Command key in press-and-hold mode.
+- The default shortcut for a mode is Right Command in press-and-hold mode; each mode has its own unique shortcut.
 - While the shortcut is pressed down, the state must be `Recording`; releasing it ends the capture.
 - Escape must cancel the ongoing recording or processing and not insert any text.
 - The user must be able to assign a unique shortcut to each saved mode.
@@ -91,6 +91,8 @@ Each mode must contain:
 | Instructions | Post-processing text; can be empty. |
 | Model profile | Balanced local profile of v1. |
 | Output | Automatically insert, with clipboard copy as contingency. |
+
+Users can create (up to 4), edit, and delete modes. At least one mode must remain.
 
 The initial modes are:
 
@@ -158,7 +160,7 @@ The product should feel like a quiet desktop tool: aluminum graphite and black f
 
 ## 8. Acceptance Criteria
 
-- The Right Command key starts recording only while held down, and its release terminates the flow.
+- A mode's shortcut starts recording only while held down, and its release terminates the flow.
 - Text is never inserted before the shortcut is released.
 - A mode applies only its own instructions, and the `Faithful transcription` mode does not perform rewriting post-processing.
 - The result is inserted into the initially focused field or copied to the clipboard with an explicit warning.

@@ -1,6 +1,26 @@
 # Voxly
 
-Local macOS MVP: hold right Command, speak, release; Voxly transcribes, optionally refines, and attempts to insert the result into the original text field. Temporary audio is removed after processing. One fixed global shortcut; modes alter language/instructions.
+Local macOS MVP: hold a configurable shortcut key, speak, release; Voxly transcribes, optionally refines, and attempts to insert the result into the original text field. Temporary audio is removed after processing. Each mode can use a different shortcut key; modes also alter language and instructions.
+
+## Shortcuts
+
+Each mode can use any modifier key as its hold-to-dictate shortcut:
+
+| Key | Display name |
+|---|---|
+| Right Command | `⌘ Right` |
+| Left Command | `⌘ Left` |
+| Left Option | `⌥ Left` |
+| Right Option | `⌥ Right` |
+| Left Control | `⌃ Left` |
+| Right Control | `⌃ Right` |
+| Left Shift | `⇧ Left` |
+| Right Shift | `⇧ Right` |
+| Function (Fn) | `Fn` |
+
+**To change:** Open Voxly → Modes → select a mode → click the `Global shortcut` button → press the desired modifier key. Duplicate shortcuts across modes show an inline error. Right Command is the default for new modes.
+
+Dictation starts when a mode's shortcut is held and stops when released. The mode matching the pressed shortcut is used for transcription and refinement. Escape cancels an active dictation regardless of current mode.
 
 ## Quick Command (Build + Install)
 
