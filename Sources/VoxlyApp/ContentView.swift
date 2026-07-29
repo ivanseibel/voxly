@@ -32,37 +32,46 @@ enum VoxlyColor { static let base = Color(red: 0.055, green: 0.06, blue: 0.065);
 struct BrandMark: View { var body: some View { HStack(spacing: 9) { Image(systemName: "waveform").foregroundStyle(.green).font(.system(size: 18, weight: .medium)); Text("Voxly").font(.system(size: 19, weight: .semibold, design: .rounded)) }.foregroundStyle(VoxlyColor.ink) } }
 struct NavButton: ButtonStyle { let selected: Bool; func makeBody(configuration: Configuration) -> some View { configuration.label.padding(.horizontal, 10).padding(.vertical, 8).foregroundStyle(selected ? Color.white : VoxlyColor.muted).background(selected ? Color.white.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 7)).opacity(configuration.isPressed ? 0.7 : 1) } }
 struct StatusStrip: View { let status: PermissionStatus; var body: some View { VStack(alignment: .leading, spacing: 5) { HStack(spacing: 6) { Circle().fill(status.allReady ? .green : .orange).frame(width: 7, height: 7); Text(status.allReady ? "Ready" : "Attention needed").font(.caption.weight(.medium)) }; Text(status.allReady ? "All local on this Mac" : "Open Diagnostics").font(.caption2).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line)) } }
-struct Header: View { @ObservedObject var store: VoxlyStore; var body: some View { HStack { VStack(alignment: .leading, spacing: 3) { Text(store.activeMode.name).font(.headline); Text(store.lastMessage).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(store.activeMode.shortcut).font(.system(.caption, design: .monospaced).weight(.medium)).padding(.horizontal, 10).padding(.vertical, 6).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 6)) }.padding(.horizontal, 28).padding(.vertical, 18) } }
+struct Header: View { @ObservedObject var store: VoxlyStore; var body: some View { HStack { VStack(alignment: .leading, spacing: 3) { Text("Voxly").font(.headline); Text(store.lastMessage).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer() }.padding(.horizontal, 28).padding(.vertical, 18) } }
 
 struct ModesView: View {
     @ObservedObject var store: VoxlyStore
     @State private var selectedID: UUID?
     @State private var draft: DictationMode?
     @State private var error = ""
-    var selected: DictationMode? { store.modes.first { $0.id == (selectedID ?? store.activeModeID) } }
+    var selected: DictationMode? { store.modes.first { $0.id == selectedID } }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 7) {
                 Text("Speech modes").font(.title2.weight(.semibold)).padding(.bottom, 10)
                 ForEach(store.modes) { mode in
-                    Button { selectedID = mode.id; draft = mode; error = "" } label: {
-                        HStack(spacing: 10) { Circle().fill(mode.id == store.activeModeID ? .green : .clear).frame(width: 7, height: 7); VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text(mode.language.rawValue).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                    }.buttonStyle(NavButton(selected: mode.id == (selectedID ?? store.activeModeID)))
+                    HStack(spacing: 0) {
+                        Button { selectedID = mode.id; draft = mode; error = "" } label: {
+                            HStack(spacing: 10) { VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text(mode.language.rawValue).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                        }.buttonStyle(NavButton(selected: mode.id == selectedID))
+                        Button { deleteMode(mode) } label: { Image(systemName: "trash").foregroundStyle(VoxlyColor.muted) }.buttonStyle(.plain).padding(.trailing, 10).disabled(store.modes.count <= 1).opacity(store.modes.count <= 1 ? 0.3 : 1)
+                    }
                 }
-                Button { let new = DictationMode(name: "New mode", language: .automatic, instructions: ""); store.modes.append(new); selectedID = new.id; draft = new } label: { Label("New mode", systemImage: "plus") }.padding(.top, 8)
+                Button { let new = DictationMode(name: "New mode", language: .automatic, instructions: ""); store.modes.append(new); selectedID = new.id; draft = new } label: { Label("New mode", systemImage: "plus") }.padding(.top, 8).disabled(store.modes.count >= 4).opacity(store.modes.count >= 4 ? 0.3 : 1)
                 Spacer()
             }.padding(28).frame(width: 300).background(VoxlyColor.canvas)
             Divider().overlay(VoxlyColor.line)
             if let binding = Binding($draft) {
                 ModeEditor(mode: binding, error: $error, save: save, store: store)
             } else { ContentUnavailableView("Select a mode", systemImage: "waveform", description: Text("Configure language, shortcut, and local instructions.")) }
-        }.onAppear { selectedID = store.activeModeID; draft = selected }
+        }.onAppear { selectedID = store.modes.first?.id; draft = selected }
     }
     func save() {
         guard let draft else { return }
         guard !draft.name.trimmingCharacters(in: .whitespaces).isEmpty else { error = "Name required"; return }
         guard let index = store.modes.firstIndex(where: { $0.id == draft.id }) else { return }
-        store.modes[index] = draft; store.activeModeID = draft.id; error = "Saved"
+        store.modes[index] = draft; error = "Saved"
+    }
+    func deleteMode(_ mode: DictationMode) {
+        guard store.modes.count > 1 else { return }
+        guard let index = store.modes.firstIndex(where: { $0.id == mode.id }) else { return }
+        store.modes.remove(at: index)
+        if selectedID == mode.id { selectedID = store.modes.first?.id; draft = selected }
     }
 }
 

@@ -79,9 +79,10 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack { Circle().fill(store.status.allReady ? .green : .orange).frame(width: 8, height: 8); Text(store.capsule.title).fontWeight(.semibold); Spacer(); Text("local").foregroundStyle(.secondary) }
             Divider()
-            Text("Active mode").font(.caption).foregroundStyle(.secondary)
-            Picker("Mode", selection: $store.activeModeID) { ForEach(store.modes) { Text($0.name).tag($0.id) } }.labelsHidden()
-            Text("Hold \(store.activeMode.shortcut) to dictate").font(.caption).foregroundStyle(.secondary)
+            Text("Shortcuts").font(.caption).foregroundStyle(.secondary)
+            ForEach(store.modes) { mode in
+                HStack { Text(mode.name); Spacer(); Text(mode.shortcut).font(.caption).foregroundStyle(.secondary) }
+            }
             Divider()
             Button("Open Voxly") {
                 openWindow(id: "main")

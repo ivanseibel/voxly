@@ -12,6 +12,7 @@ final class DictationCoordinator: NSObject {
     private var target: TextInserter.Target?
     private var monitor: Any?
     private var isRecording = false
+    private var currentMode: DictationMode?
     var onCapsule: ((Bool) -> Void)?
 
     init(store: VoxlyStore) { self.store = store; super.init(); recorder.onLevel = { [weak store] in store?.audioLevel = $0 } }
@@ -32,23 +33,35 @@ final class DictationCoordinator: NSObject {
     func requestAccessibility() { permissions.requestAccessibility(); refreshStatus() }
     func receive(type: NSEvent.EventType, keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
         if type == .keyDown, keyCode == 53 { cancel(); return }
-        guard store.activeMode.shortcut == "⌘ Right" else { return }
-        guard keyCode == 54 else { return } // right Command hardware key
-        let pressed = modifierFlags.contains(.command)
-        if pressed && !isRecording { begin() }
-        if !pressed && isRecording { finish() }
+
+        if isRecording, let cm = currentMode {
+            // While recording, only respond to release of the shortcut that started it
+            guard Int(keyCode) == cm.shortcutKeyCode else { return }
+            let flag = NSEvent.ModifierFlags(rawValue: cm.shortcutModifiers)
+            if !modifierFlags.contains(flag) { finish() }
+            return
+        }
+
+        // Not recording — find mode by pressed modifier
+        guard let mode = store.modes.first(where: {
+            Int(keyCode) == $0.shortcutKeyCode &&
+            modifierFlags.contains(NSEvent.ModifierFlags(rawValue: $0.shortcutModifiers))
+        }) else { return }
+        begin(mode: mode)
     }
-    func begin() {
+    private func begin(mode: DictationMode) {
+        currentMode = mode
         guard store.status.microphone else { fail("Allow Microphone to record"); return }
         guard store.status.accessibility else { fail("Allow Accessibility to insert text"); return }
         guard store.status.models else { fail("Install local models before dictating"); return }
         target = inserter.captureTarget()
-        do { try recorder.start(); recordingStartedAt = Date(); isRecording = true; store.capsule = .recording; store.lastMessage = "Recording — release ⌘ Right"; onCapsule?(true) }
+        do { try recorder.start(); recordingStartedAt = Date(); isRecording = true; store.capsule = .recording; store.lastMessage = "Recording — hold \(mode.shortcut)"; onCapsule?(true) }
         catch { fail(error.localizedDescription) }
     }
     private var recordingStartedAt: Date?
     func finish() {
-        guard isRecording else { return }
+        guard isRecording, let mode = currentMode else { return }
+        currentMode = nil
         isRecording = false
         let audio = recorder.stopAndRemove(); store.audioLevel = 0
         let heldSeconds = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
@@ -56,27 +69,26 @@ final class DictationCoordinator: NSObject {
         guard heldSeconds >= 0.3 else {
             VoxlyLog.log("Tap too short (\(String(format: "%.2f", heldSeconds))s) — discarding without transcribing")
             if let audio { try? FileManager.default.removeItem(at: audio) }
-            store.capsule = .ready; store.lastMessage = "Tap too short — hold ⌘ Right while speaking"; onCapsule?(false)
+            store.capsule = .ready; store.lastMessage = "Tap too short — hold \(mode.shortcut) while speaking"; onCapsule?(false)
             return
         }
         store.capsule = .transcribing
         store.lastMessage = "Processing audio locally"
         onCapsule?(true)
-        Task { await process(audio) }
+        Task { await process(audio, mode: mode) }
     }
     func cancel() {
         guard isRecording || store.capsule != .ready else { return }
-        isRecording = false; _ = recorder.stopAndRemove(); recorder.discard(); store.audioLevel = 0; store.capsule = .ready; store.lastMessage = "Dictation canceled"; onCapsule?(false)
+        currentMode = nil; isRecording = false; _ = recorder.stopAndRemove(); recorder.discard(); store.audioLevel = 0; store.capsule = .ready; store.lastMessage = "Dictation canceled"; onCapsule?(false)
     }
-    private func process(_ audio: URL?) async {
+    private func process(_ audio: URL?, mode: DictationMode) async {
         guard let audio else { fail("No usable audio captured"); return }
         let startedAt = Date()
         var shouldRemoveAudio = true
         defer { if shouldRemoveAudio { try? FileManager.default.removeItem(at: audio) } }
         do {
-            let raw = try await Task.detached { [transcriber, mode = store.activeMode] in try await transcriber.transcribe(audio: audio, language: mode.language) }.value
+            let raw = try await Task.detached { [transcriber] in try await transcriber.transcribe(audio: audio, language: mode.language) }.value
             let transcriptionSeconds = Date().timeIntervalSince(startedAt)
-            let mode = store.activeMode
             let final: String
             if !mode.usesRefinement {
                 VoxlyLog.log("Mode '\(mode.name)' has no refinement (usesRefinement=false)")
@@ -94,7 +106,7 @@ final class DictationCoordinator: NSObject {
                 }
             }
             let result = target.map { inserter.insert(final + " ", into: $0) } ?? .failed
-            store.addHistory(raw: raw, final: final, result: result)
+            store.addHistory(raw: raw, final: final, result: result, mode: mode)
             store.capsule = result == .inserted ? .inserted : .copied
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
             let transcribed = String(format: "%.1f", transcriptionSeconds)

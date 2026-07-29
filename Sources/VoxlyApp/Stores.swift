@@ -4,7 +4,6 @@ import SwiftUI
 @MainActor
 final class VoxlyStore: ObservableObject {
     @Published var modes: [DictationMode] { didSet { saveModes() } }
-    @Published var activeModeID: UUID { didSet { defaults.set(activeModeID.uuidString, forKey: "activeModeID") } }
     @Published var history: [HistoryEntry] { didSet { saveHistory() } }
     @Published var status = PermissionStatus()
     @Published var capsule: CapsuleState = .ready
@@ -15,22 +14,17 @@ final class VoxlyStore: ObservableObject {
     private let fileManager = FileManager.default
 
     init() {
-        let initialModes = Self.decode([DictationMode].self, key: "modes") ?? DictationMode.defaults
-        let savedActiveID = UUID(uuidString: defaults.string(forKey: "activeModeID") ?? "")
-        modes = initialModes
-        activeModeID = savedActiveID.flatMap { id in initialModes.contains(where: { $0.id == id }) ? id : nil } ?? initialModes[0].id
+        modes = Self.decode([DictationMode].self, key: "modes") ?? DictationMode.defaults
         history = Self.decode([HistoryEntry].self, key: "history") ?? []
     }
 
-    var activeMode: DictationMode { modes.first(where: { $0.id == activeModeID }) ?? modes[0] }
-
-    func addHistory(raw: String, final: String, result: InsertionResult) {
-        history.insert(HistoryEntry(rawText: raw, finalText: final, mode: activeMode.name, language: activeMode.language, insertion: result), at: 0)
+    func addHistory(raw: String, final: String, result: InsertionResult, mode: DictationMode) {
+        history.insert(HistoryEntry(rawText: raw, finalText: final, mode: mode.name, language: mode.language, insertion: result), at: 0)
     }
     func deleteHistory(_ entry: HistoryEntry) { history.removeAll { $0.id == entry.id } }
     func clearHistory() { history = [] }
-    func shortcutTaken(_ shortcut: String, excluding id: UUID? = nil) -> Bool {
-        modes.contains { $0.shortcut == shortcut && $0.id != id }
+    func shortcutKeyTaken(_ keyCode: Int, excluding id: UUID? = nil) -> Bool {
+        modes.contains { $0.shortcutKeyCode == keyCode && $0.id != id }
     }
 
     private func saveModes() { Self.encode(modes, key: "modes") }
