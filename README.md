@@ -1,95 +1,132 @@
-# Voxly
+<div align="center">
+  <img src="assets/app-icon.png" alt="Voxly Logo" width="128" height="128">
+  <h1>Voxly</h1>
+  <p><b>Fast, private, push-to-talk voice dictation and text refinement for macOS.</b></p>
 
-Local macOS MVP: hold a configurable shortcut key, speak, release; Voxly transcribes, optionally refines, and attempts to insert the result into the original text field. Temporary audio is removed after processing. Each mode can use a different shortcut key; modes also alter language and instructions.
+  <p>
+    <a href="#overview">Overview</a> •
+    <a href="#key-features">Features</a> •
+    <a href="#quick-start">Quick Start</a> •
+    <a href="#shortcuts--modes">Shortcuts & Modes</a> •
+    <a href="#local-engines--architecture">Local Engines</a> •
+    <a href="#contributing">Contributing</a>
+  </p>
+</div>
 
-## Shortcuts
+---
 
-Each mode can use any modifier key as its hold-to-dictate shortcut:
+## Overview
 
-| Key | Display name |
-|---|---|
-| Right Command | `⌘ Right` |
-| Left Command | `⌘ Left` |
-| Left Option | `⌥ Left` |
-| Right Option | `⌥ Right` |
-| Left Control | `⌃ Left` |
-| Right Control | `⌃ Right` |
-| Left Shift | `⇧ Left` |
-| Right Shift | `⇧ Right` |
-| Function (Fn) | `Fn` |
+**Voxly** is a lightweight, privacy-first macOS application for voice dictation. Hold a global shortcut key, speak, and release — Voxly transcribes your speech and inserts the result directly into your active text field.
 
-**To change:** Open Voxly → Modes → select a mode → click the `Global shortcut` button → press the desired modifier key. Duplicate shortcuts across modes show an inline error. Right Command is the default for new modes.
+Voxly runs entirely on your Mac using hardware-accelerated (arm64 / Metal) local AI engines. **No audio or text ever leaves your machine.**
 
-**Add / delete modes:** Click `+ New mode` in the Modes view (max 4 modes). Click the trash icon on a mode row to delete it (minimum 1 mode must remain).
+<div align="center">
+  <img src="assets/menu-bar-popover.png" alt="Voxly Menu Bar Popover" width="380">
+  <br>
+  <sub><i>Menu bar popover showing status, active modes, and quick actions</i></sub>
+</div>
 
-Dictation starts when a mode's shortcut is held and stops when released. The mode matching the pressed shortcut is used for transcription and refinement. Escape cancels an active dictation regardless of current mode.
+---
 
-## Quick Command (Build + Install)
+## ✨ Key Features
 
-Copy and paste:
+- **Push-to-Talk Dictation:** Hold a global modifier key to record, release to transcribe and insert directly into the active app.
+- **100% Local & Private:** Transcribes locally via `whisper.cpp` and refines text via `llama.cpp`. Audio buffers are deleted immediately after processing.
+- **Persistent High-Performance Servers:** Uses local persistent daemon servers to eliminate model reloading latency for near-instant response.
+- **Multiple Dictation Modes:** Configure separate speech modes (e.g., *Faithful transcription*, *Clean text*) with custom global hotkeys, languages, and local instructions.
+- **Direct Cursor Insertion:** Injects transcribed text into the focused text field using macOS Accessibility APIs, with automatic fallback to clipboard paste (`⌘V`).
+- **Permissions Diagnostics:** Built-in setup verification for Microphone, Accessibility permissions, and local engine files.
+- **Local History:** Lightweight search for past transcriptions. Audio is never stored.
 
-```sh
+---
+
+## 🖼 Interface Preview
+
+| Speech Modes | Diagnostics & Status |
+| :---: | :---: |
+| <img src="assets/main-window-modes.png" alt="Speech Modes View" width="460"> | <img src="assets/main-window-diagnostics.png" alt="Diagnostics View" width="460"> |
+
+| Local History | Menu Bar Popover |
+| :---: | :---: |
+| <img src="assets/main-window-history.png" alt="Local History View" width="460"> | <img src="assets/menu-bar-popover.png" alt="Menu Bar Popover" width="320"> |
+
+---
+
+## 🚀 Quick Start
+
+### One-Command Build & Install
+
+To compile Voxly and install it to `/Applications`:
+
+```bash
 zsh scripts/build-install.sh
 ```
 
-Copy and paste (install in custom folder):
+**Custom Installation Options:**
 
-```sh
+```bash
+# Install to custom folder (e.g. ~/Applications)
 VOXLY_INSTALL_DIR="$HOME/Applications" zsh scripts/build-install.sh
-```
 
-Copy and paste (build/install only, do not auto-open):
-
-```sh
+# Build & install without auto-opening
 VOXLY_OPEN_AFTER_INSTALL=0 zsh scripts/build-install.sh
 ```
 
-## Status
+### Run in Development Mode
 
-Dictation, cursor insertion, history, permissions, local models, and arm64/Metal acceleration are working. Performance has improved significantly after replacing Homebrew x86 binaries with native arm64/Metal builds and persistent servers.
-
-Open tasks and current project notes are tracked in [BACKLOG.md](BACKLOG.md).
-
-## Contributing
-
-Voxly is in early, active development — a functional MVP, usable enough to adopt in your workflow, but still finding its shape. Ideas, suggestions, and fixes are extremely welcome.
-
-Open an [issue](https://github.com/ivanseibel/voxly/issues) or submit a [pull request](https://github.com/ivanseibel/voxly/pulls). No strict process, no cla, no bureaucracy — just describe what you're proposing and why. Every contribution helps, from a one-line typo fix to a new feature.
-
-## License
-
-[MIT](LICENSE)
-
-## Run
-
-```sh
+```bash
 swift run Voxly
 ```
 
-## Build And Install
+---
 
-```sh
-zsh scripts/build-install.sh
-```
+## ⌨ Shortcuts & Modes
 
-Optional environment variables:
+Assign different global modifier keys to distinct dictation modes:
 
-- `VOXLY_INSTALL_DIR`: custom install folder (default: `/Applications`).
-- `VOXLY_OPEN_AFTER_INSTALL`: set to `0` to skip auto-open after install.
+| Key | Display Name | Action |
+| :--- | :--- | :--- |
+| **Right Command** | `⌘ Right` | Default mode (*Faithful transcription*) |
+| **Right Option** | `⌥ Right` | Refinement mode (*Clean text*) |
+| **Left Command** | `⌘ Left` | Configurable mode |
+| **Left Option** | `⌥ Left` | Configurable mode |
+| **Left Control** | `⌃ Left` | Configurable mode |
+| **Right Control** | `⌃ Right` | Configurable mode |
+| **Left Shift** | `⇧ Left` | Configurable mode |
+| **Right Shift** | `⇧ Right` | Configurable mode |
+| **Function (Fn)** | `Fn` | Configurable mode |
 
-## Local Engines
+> [!TIP]
+> Pressing **Escape** during an active dictation immediately cancels recording.
 
-Place executables and models in `~/Library/Application Support/Voxly/Models/`:
+---
+
+## ⚙ Local Engines & Architecture
+
+Voxly requires native binaries and models located in `~/Library/Application Support/Voxly/Models/`:
 
 ```text
-whisper-cli        # whisper.cpp compiled with Metal
-ggml-small.bin     # Whisper model
+~/Library/Application Support/Voxly/Models/
+├── whisper-cli        # whisper.cpp (arm64 / Metal)
+├── ggml-small.bin     # Whisper speech recognition model
+├── llama-cli          # (Optional) llama.cpp (arm64 / Metal)
+└── instruct.gguf      # (Optional) Llama text refinement model
 ```
 
-`llama-cli` and `instruct.gguf` are optional: they enable cleaning/email/notes refinement. Without them, Voxly preserves raw text. Afterwards, enable Microphone and Accessibility permissions in Diagnostics. No content is sent by Voxly.
+When native binaries are present, Voxly automatically spawns local persistent daemon servers (`whisper-server` on port `18080` and `llama-server` on port `18081`) bound strictly to `127.0.0.1`.
 
-The app starts persistent local servers for Whisper and Llama when native binaries are installed. This avoids reloading models for every dictation. The servers only listen on `127.0.0.1` on ports `18080` and `18081`.
+---
 
-## Resuming Work
+## 🤝 Contributing
 
-Refer to [BACKLOG.md](BACKLOG.md) to check for open tasks and current notes.
+Voxly is an early-stage open-source project under active development. Community contributions, bug reports, and feedback are very welcome!
+
+- Open an [Issue](https://github.com/ivanseibel/voxly/issues) or submit a [Pull Request](https://github.com/ivanseibel/voxly/pulls).
+- Check [BACKLOG.md](BACKLOG.md) to see current roadmap tasks and status notes.
+
+---
+
+## 📄 License
+
+Voxly is available under the [MIT License](LICENSE).
