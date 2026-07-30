@@ -50,6 +50,16 @@ Dictation, cursor insertion, history, permissions, local models, and arm64/Metal
 
 Open tasks and current project notes are tracked in [BACKLOG.md](BACKLOG.md).
 
+## Contributing
+
+Voxly is in early, active development — a functional MVP, usable enough to adopt in your workflow, but still finding its shape. Ideas, suggestions, and fixes are extremely welcome.
+
+Open an [issue](https://github.com/ivanseibel/voxly/issues) or submit a [pull request](https://github.com/ivanseibel/voxly/pulls). No strict process, no cla, no bureaucracy — just describe what you're proposing and why. Every contribution helps, from a one-line typo fix to a new feature.
+
+## License
+
+[MIT](LICENSE)
+
 ## Run
 
 ```sh
