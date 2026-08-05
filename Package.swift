@@ -5,5 +5,8 @@ let package = Package(
     name: "Voxly",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "Voxly", targets: ["VoxlyApp"])],
-    targets: [.executableTarget(name: "VoxlyApp")]
+    targets: [
+        .executableTarget(name: "VoxlyApp"),
+        .testTarget(name: "VoxlyAppTests", dependencies: ["VoxlyApp"]),
+    ]
 )
