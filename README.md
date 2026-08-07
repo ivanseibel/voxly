@@ -118,6 +118,31 @@ When native binaries are present, Voxly automatically spawns local persistent da
 
 ---
 
+## 🛠 Configuration
+
+Runtime settings live in a JSON file that Voxly generates automatically on first launch:
+
+```text
+~/Library/Application Support/Voxly/config.json
+```
+
+The file is **self-documenting**: a `_help` block at the top describes every option. Missing keys fall back to their defaults, so a partial or deleted file never breaks startup, and newly added options appear automatically after an update. **Edit a value and restart Voxly to apply it.**
+
+Common options include:
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `duckVolumeFactor` | `0.1` | Lowers background audio volume while recording (0.0–1.0). |
+| `minTapSeconds` | `0.3` | Minimum hold time; shorter taps are discarded. |
+| `whisperPort` / `llamaPort` | `18080` / `18081` | Local server ports (loopback only). |
+| `whisperThreads` / `llamaThreads` | `8` | CPU threads per local model. |
+| `llamaContextSize` | `2048` | Llama context window (tokens). |
+| `refineMaxTokens` | `256` | Max tokens generated during refinement. |
+
+See the `_help` block inside the generated file for the full list of options and descriptions.
+
+---
+
 ## 🤝 Contributing
 
 Voxly is an early-stage open-source project under active development. Community contributions, bug reports, and feedback are very welcome!
