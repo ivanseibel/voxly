@@ -27,6 +27,10 @@ fi
 target_app="$install_dir/Voxly.app"
 
 echo "Installing to $target_app..."
+# Quit any running instance so `open` launches the freshly installed binary
+# instead of just reactivating the old one.
+osascript -e 'quit app "Voxly"' 2>/dev/null || true
+pkill -x Voxly 2>/dev/null || true
 rm -rf "$target_app"
 ditto "$app_path" "$target_app"
 
