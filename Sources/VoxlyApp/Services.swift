@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import AVFoundation
+import CoreAudio
 import Foundation
 import NaturalLanguage
 
@@ -70,6 +71,95 @@ final class ModelLocator: @unchecked Sendable {
     var installFolder: String { root.path }
 }
 
+/// Reads and pins Core Audio device sample rates so opening the capture engine
+/// doesn't renegotiate the shared clock and shift the pitch of audio already playing.
+enum AudioDeviceRate {
+    private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let err = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID)
+        return err == noErr && deviceID != 0 ? deviceID : nil
+    }
+
+    private static func nominalSampleRate(_ device: AudioDeviceID) -> Double? {
+        var rate = Double(0)
+        var size = UInt32(MemoryLayout<Double>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let err = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &rate)
+        return err == noErr && rate > 0 ? rate : nil
+    }
+
+    private static func setNominalSampleRate(_ device: AudioDeviceID, _ rate: Double) -> Bool {
+        var value = rate
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let err = AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Double>.size), &value)
+        return err == noErr
+    }
+
+    /// Aligns the default input device's sample rate to the default output device's so the
+    /// engine adopts the rate the music is already playing at, leaving the output untouched.
+    /// Skipped when input and output are the same physical device (single shared rate, nothing
+    /// to reconcile). Returns a closure that restores the input's original rate, or nil if no
+    /// change was made.
+    static func alignInputToOutput() -> (() -> Void)? {
+        guard let input = defaultDevice(kAudioHardwarePropertyDefaultInputDevice),
+              let output = defaultDevice(kAudioHardwarePropertyDefaultOutputDevice),
+              input != output,
+              let outputRate = nominalSampleRate(output),
+              let inputRate = nominalSampleRate(input),
+              inputRate != outputRate else { return nil }
+        guard setNominalSampleRate(input, outputRate) else {
+            VoxlyLog.log("Could not pin input device sample rate to \(outputRate) Hz")
+            return nil
+        }
+        VoxlyLog.log("Pinned input device sample rate \(inputRate) → \(outputRate) Hz to match output")
+        return {
+            _ = setNominalSampleRate(input, inputRate)
+            VoxlyLog.log("Restored input device sample rate to \(inputRate) Hz")
+        }
+    }
+}
+
+/// Temporarily lowers the system output volume during capture so playback (music) stays
+/// audible but quieter while dictating, then restores the prior level. Uses AppleScript's
+/// main output volume, which drives Bluetooth devices that don't expose a settable Core
+/// Audio volume scalar.
+enum OutputVolume {
+    private static let osascript = URL(fileURLWithPath: "/usr/bin/osascript")
+
+    private static func current() -> Int? {
+        guard let out = try? LocalProcess.run(executable: osascript, arguments: ["-e", "output volume of (get volume settings)"]) else { return nil }
+        return Int(out.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func set(_ level: Int) {
+        _ = try? LocalProcess.run(executable: osascript, arguments: ["-e", "set volume output volume \(level)"])
+    }
+
+    /// Multiplies the current output volume by `factor` (0...1). Returns a closure that
+    /// restores the original level, or nil if the volume couldn't be read.
+    static func duck(byFactor factor: Float) -> (() -> Void)? {
+        guard let original = current() else { return nil }
+        let ducked = Int((Float(original) * factor).rounded())
+        set(ducked)
+        VoxlyLog.log("Ducked output volume \(original) → \(ducked)")
+        return {
+            set(original)
+            VoxlyLog.log("Restored output volume to \(original)")
+        }
+    }
+}
+
 final class AudioRecorder: @unchecked Sendable {
     private var engine = AVAudioEngine()
     private var file: AVAudioFile?
@@ -77,21 +167,30 @@ final class AudioRecorder: @unchecked Sendable {
     private var bufferCount = 0
     private var frameCount: Int64 = 0
     private var writeErrorLogged = false
+    private var restoreInputRate: (() -> Void)?
+    private var restoreVolume: (() -> Void)?
     var onLevel: ((Float) -> Void)?
 
     func start() throws {
-        try attemptStart(retriesRemaining: 7)
+        restoreInputRate = AudioDeviceRate.alignInputToOutput()
+        do {
+            try attemptStart(retriesRemaining: AppConfig.current.engineStartRetries)
+        } catch {
+            restoreInputRate?(); restoreInputRate = nil
+            throw error
+        }
+        restoreVolume = OutputVolume.duck(byFactor: Float(AppConfig.current.duckVolumeFactor))
     }
     private func attemptStart(retriesRemaining: Int) throws {
         // Rebuilds the engine on each new attempt: an AUGraph that failed to start can end up in
         // an inconsistent state, and a simple stop()/reset() isn't always enough to recover
         // input from a Bluetooth device (HFP profile) still renegotiating.
-        if retriesRemaining < 7 { engine = AVAudioEngine() }
+        if retriesRemaining < AppConfig.current.engineStartRetries { engine = AVAudioEngine() }
         let format = engine.inputNode.outputFormat(forBus: 0)
         guard format.channelCount > 0, format.sampleRate > 0 else {
             if retriesRemaining > 0 {
                 VoxlyLog.log("Invalid input format — waiting for Bluetooth device negotiation (\(retriesRemaining) retries remaining)")
-                Thread.sleep(forTimeInterval: 0.3)
+                Thread.sleep(forTimeInterval: AppConfig.current.retrySleepInvalidFormatSeconds)
                 return try attemptStart(retriesRemaining: retriesRemaining - 1)
             }
             throw VoxlyError.processFailed("Audio input device unavailable — check the selected microphone")
@@ -104,7 +203,7 @@ final class AudioRecorder: @unchecked Sendable {
         VoxlyLog.log("Recorder started — format: \(format)")
         // format: nil lets AVAudioEngine use the hardware's real format at tap installation time,
         // avoiding an AVFoundation exception when the input device (e.g. Bluetooth) changes format.
-        engine.inputNode.installTap(onBus: 0, bufferSize: 2_048, format: nil) { [weak self] buffer, _ in
+        engine.inputNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(AppConfig.current.tapBufferSize), format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             do {
                 try self.file?.write(from: buffer)
@@ -116,7 +215,7 @@ final class AudioRecorder: @unchecked Sendable {
             guard let channels = buffer.floatChannelData else { return }
             let samples = Int(buffer.frameLength)
             let level = (0..<samples).reduce(Float.zero) { $0 + abs(channels[0][$1]) } / Float(max(samples, 1))
-            DispatchQueue.main.async { self.onLevel?(min(level * 8, 1)) }
+            DispatchQueue.main.async { self.onLevel?(min(level * Float(AppConfig.current.levelMeterGain), 1)) }
         }
         do {
             try engine.start()
@@ -125,7 +224,7 @@ final class AudioRecorder: @unchecked Sendable {
             file = nil
             if retriesRemaining > 0 {
                 VoxlyLog.log("engine.start() failed (\(error)) — retrying (\(retriesRemaining) retries remaining)")
-                Thread.sleep(forTimeInterval: 0.4)
+                Thread.sleep(forTimeInterval: AppConfig.current.retrySleepStartFailureSeconds)
                 return try attemptStart(retriesRemaining: retriesRemaining - 1)
             }
             throw error
@@ -137,6 +236,11 @@ final class AudioRecorder: @unchecked Sendable {
         let seconds = sampleRate > 0 ? Double(frameCount) / sampleRate : 0
         VoxlyLog.log("Recorder finished — \(bufferCount) buffers, \(frameCount) frames, ~\(String(format: "%.2f", seconds))s")
         file = nil
+        // Release the engine so its input AudioUnit is uninitialized and the capture device is
+        // freed — otherwise a Bluetooth headset stays in low-quality HFP mode until app exit.
+        restoreVolume?(); restoreVolume = nil
+        engine = AVAudioEngine()
+        restoreInputRate?(); restoreInputRate = nil
         return url
     }
     func discard() {
@@ -153,7 +257,7 @@ struct LocalTranscriber: Sendable {
         let audioBytes = (attributes?[.size] as? Int) ?? -1
         VoxlyLog.log("Transcribing audio (\(audioBytes) bytes, language: \(language.whisperCode))")
         do {
-            let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: ["response_format": "json", "language": language.whisperCode, "temperature": "0"])
+            let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: ["response_format": "json", "language": language.whisperCode, "temperature": "\(AppConfig.current.whisperTemperature)"])
             let raw = try JSONDecoder().decode(LocalModelHTTP.WhisperResponse.self, from: data).text
             let cleaned = cleanText(raw)
             if !cleaned.isEmpty { return cleaned }
@@ -180,7 +284,7 @@ struct LocalTranscriber: Sendable {
         let locator = ModelLocator.shared
         guard FileManager.default.isExecutableFile(atPath: locator.whisper.path) else { throw VoxlyError.executableMissing("whisper.cpp") }
         guard FileManager.default.fileExists(atPath: locator.whisperModel.path) else { throw VoxlyError.executableMissing("Whisper model") }
-        var arguments = ["-m", locator.whisperModel.path, "-f", audio.path, "--no-timestamps", "--no-prints", "-t", "8"]
+        var arguments = ["-m", locator.whisperModel.path, "-f", audio.path, "--no-timestamps", "--no-prints", "-t", "\(AppConfig.current.whisperThreads)"]
         arguments += ["-l", language.whisperCode]
         let output = try LocalProcess.run(executable: locator.whisper, arguments: arguments)
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -353,11 +457,11 @@ final class TextInserter {
         let pasteboard = NSPasteboard.general
         let prior = pasteboard.string(forType: .string)
         pasteboard.clearContents(); pasteboard.setString(text, forType: .string)
-        Thread.sleep(forTimeInterval: 0.08)
+        Thread.sleep(forTimeInterval: AppConfig.current.insertionDelaySeconds)
         let source = CGEventSource(stateID: .hidSystemState)
         let down = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true); down?.flags = .maskCommand; down?.post(tap: .cghidEventTap)
         let up = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false); up?.flags = .maskCommand; up?.post(tap: .cghidEventTap)
-        if let prior { DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) { pasteboard.clearContents(); pasteboard.setString(prior, forType: .string) } }
+        if let prior { DispatchQueue.main.asyncAfter(deadline: .now() + AppConfig.current.clipboardRestoreDelaySeconds) { pasteboard.clearContents(); pasteboard.setString(prior, forType: .string) } }
         guard down != nil, up != nil else { return .copied }
         return .inserted
     }

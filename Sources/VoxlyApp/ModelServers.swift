@@ -12,10 +12,10 @@ final class ModelServerManager {
         started = true
         Task { @MainActor in
             if !(await responds(to: LocalModelHTTP.whisperHealthURL)) {
-                whisper = launch(ModelLocator.shared.whisperServer, arguments: ["--host", "127.0.0.1", "--port", "18080", "-m", ModelLocator.shared.whisperModel.path, "-t", "8"])
+                whisper = launch(ModelLocator.shared.whisperServer, arguments: ["--host", "127.0.0.1", "--port", "\(AppConfig.current.whisperPort)", "-m", ModelLocator.shared.whisperModel.path, "-t", "\(AppConfig.current.whisperThreads)"])
             }
             if !(await responds(to: LocalModelHTTP.llamaHealthURL)) {
-                llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "18081", "-m", ModelLocator.shared.instructModel.path, "-ngl", "all", "-t", "8", "-c", "2048", "--reasoning", "off", "--no-webui"])
+                llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "\(AppConfig.current.llamaPort)", "-m", ModelLocator.shared.instructModel.path, "-ngl", AppConfig.current.llamaGpuLayers, "-t", "\(AppConfig.current.llamaThreads)", "-c", "\(AppConfig.current.llamaContextSize)", "--reasoning", "off", "--no-webui"])
             }
         }
     }
@@ -31,7 +31,7 @@ final class ModelServerManager {
     private func responds(to url: URL) async -> Bool {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 0.75
+        request.timeoutInterval = AppConfig.current.healthCheckTimeoutSeconds
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             return response is HTTPURLResponse
@@ -49,10 +49,10 @@ final class ModelServerManager {
 }
 
 enum LocalModelHTTP {
-    static let whisperURL = URL(string: "http://127.0.0.1:18080/inference")!
-    static let llamaURL = URL(string: "http://127.0.0.1:18081/v1/chat/completions")!
-    static let whisperHealthURL = URL(string: "http://127.0.0.1:18080/health")!
-    static let llamaHealthURL = URL(string: "http://127.0.0.1:18081/health")!
+    static var whisperURL: URL { URL(string: "http://127.0.0.1:\(AppConfig.current.whisperPort)/inference")! }
+    static var llamaURL: URL { URL(string: "http://127.0.0.1:\(AppConfig.current.llamaPort)/v1/chat/completions")! }
+    static var whisperHealthURL: URL { URL(string: "http://127.0.0.1:\(AppConfig.current.whisperPort)/health")! }
+    static var llamaHealthURL: URL { URL(string: "http://127.0.0.1:\(AppConfig.current.llamaPort)/health")! }
 
     static func multipart(url: URL, file: URL, fields: [String: String]) async throws -> Data {
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -74,7 +74,7 @@ enum LocalModelHTTP {
         let payload = ChatRequest(messages: [
             Message(role: "system", content: system),
             Message(role: "user", content: prompt)
-        ], max_tokens: 256, temperature: 0.0, stream: false)
+        ], max_tokens: AppConfig.current.refineMaxTokens, temperature: AppConfig.current.refineTemperature, stream: false)
         var request = URLRequest(url: llamaURL); request.httpMethod = "POST"; request.httpBody = try JSONEncoder().encode(payload); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VoxlyError.processFailed("Llama server unavailable") }

@@ -32,7 +32,7 @@ final class DictationCoordinator: NSObject {
     func requestMicrophone() async { _ = await permissions.requestMicrophone(); refreshStatus() }
     func requestAccessibility() { permissions.requestAccessibility(); refreshStatus() }
     func receive(type: NSEvent.EventType, keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
-        if type == .keyDown, keyCode == 53 { cancel(); return }
+        if type == .keyDown, keyCode == AppConfig.current.cancelKeyCode { cancel(); return }
 
         if isRecording, let cm = currentMode {
             // While recording, only respond to release of the shortcut that started it
@@ -66,7 +66,7 @@ final class DictationCoordinator: NSObject {
         let audio = recorder.stopAndRemove(); store.audioLevel = 0
         let heldSeconds = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
-        guard heldSeconds >= 0.3 else {
+        guard heldSeconds >= AppConfig.current.minTapSeconds else {
             VoxlyLog.log("Tap too short (\(String(format: "%.2f", heldSeconds))s) — discarding without transcribing")
             if let audio { try? FileManager.default.removeItem(at: audio) }
             store.capsule = .ready; store.lastMessage = "Tap too short — hold \(mode.shortcut) while speaking"; onCapsule?(false)
@@ -111,7 +111,7 @@ final class DictationCoordinator: NSObject {
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
             let transcribed = String(format: "%.1f", transcriptionSeconds)
             store.lastMessage = result == .inserted ? "Text inserted · processed \(elapsed)s (Whisper \(transcribed)s)" : "Text in clipboard · processed \(elapsed)s"
-            onCapsule?(true); DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in self?.store.capsule = .ready; self?.onCapsule?(false) }
+            onCapsule?(true); DispatchQueue.main.asyncAfter(deadline: .now() + AppConfig.current.capsuleResetDelaySeconds) { [weak self] in self?.store.capsule = .ready; self?.onCapsule?(false) }
         } catch {
             shouldRemoveAudio = false
             if let saved = Self.preserveAudioForDebug(audio) { VoxlyLog.log("Audio from failure preserved at: \(saved.path)") }
