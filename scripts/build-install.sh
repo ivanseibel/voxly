@@ -41,5 +41,18 @@ echo "Installed: $target_app"
 
 if [[ "${VOXLY_OPEN_AFTER_INSTALL:-1}" == "1" ]]; then
   echo "Opening Voxly..."
-  open "$target_app"
+  # Refresh LaunchServices registration — a freshly replaced bundle can otherwise
+  # fail to launch with LSOpenURLsWithCompletionHandler error -600.
+  lsregister="$(xcrun --find lsregister 2>/dev/null || true)"
+  if [[ -n "$lsregister" ]]; then
+    "$lsregister" -f "$target_app" >/dev/null 2>&1 || true
+  fi
+  # Retry a few times: LaunchServices can still be settling after the copy.
+  for attempt in 1 2 3 4 5; do
+    if open "$target_app"; then
+      break
+    fi
+    echo "open failed (attempt $attempt) — retrying..."
+    sleep 1
+  done
 fi
