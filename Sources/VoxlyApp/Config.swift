@@ -3,7 +3,6 @@ import Foundation
 /// User-tunable runtime settings loaded from `config.json`. Every field falls back to its
 /// default when missing, so a partial or absent file never breaks startup.
 struct VoxlyConfig: Codable {
-    var duckVolumeFactor: Double = 0.1
     var minTapSeconds: Double = 0.3
     var whisperPort: Int = 18080
     var llamaPort: Int = 18081
@@ -24,13 +23,13 @@ struct VoxlyConfig: Codable {
     var whisperTemperature: Double = 0.0
     var insertionDelaySeconds: Double = 0.08
     var clipboardRestoreDelaySeconds: Double = 0.65
+    var a2dpRestoreTimeoutSeconds: Double = 15.0
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let d = VoxlyConfig()
-        duckVolumeFactor = try container.decodeIfPresent(Double.self, forKey: .duckVolumeFactor) ?? d.duckVolumeFactor
         minTapSeconds = try container.decodeIfPresent(Double.self, forKey: .minTapSeconds) ?? d.minTapSeconds
         whisperPort = try container.decodeIfPresent(Int.self, forKey: .whisperPort) ?? d.whisperPort
         llamaPort = try container.decodeIfPresent(Int.self, forKey: .llamaPort) ?? d.llamaPort
@@ -51,12 +50,12 @@ struct VoxlyConfig: Codable {
         whisperTemperature = try container.decodeIfPresent(Double.self, forKey: .whisperTemperature) ?? d.whisperTemperature
         insertionDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .insertionDelaySeconds) ?? d.insertionDelaySeconds
         clipboardRestoreDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .clipboardRestoreDelaySeconds) ?? d.clipboardRestoreDelaySeconds
+        a2dpRestoreTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreTimeoutSeconds) ?? d.a2dpRestoreTimeoutSeconds
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(Self.help, forKey: ._help)
-        try c.encode(duckVolumeFactor, forKey: .duckVolumeFactor)
         try c.encode(minTapSeconds, forKey: .minTapSeconds)
         try c.encode(whisperPort, forKey: .whisperPort)
         try c.encode(llamaPort, forKey: .llamaPort)
@@ -77,23 +76,24 @@ struct VoxlyConfig: Codable {
         try c.encode(whisperTemperature, forKey: .whisperTemperature)
         try c.encode(insertionDelaySeconds, forKey: .insertionDelaySeconds)
         try c.encode(clipboardRestoreDelaySeconds, forKey: .clipboardRestoreDelaySeconds)
+        try c.encode(a2dpRestoreTimeoutSeconds, forKey: .a2dpRestoreTimeoutSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
         case _help
-        case duckVolumeFactor, minTapSeconds, whisperPort, llamaPort, whisperThreads, llamaThreads
+        case minTapSeconds, whisperPort, llamaPort, whisperThreads, llamaThreads
         case engineStartRetries, retrySleepInvalidFormatSeconds, retrySleepStartFailureSeconds
         case tapBufferSize, levelMeterGain, capsuleResetDelaySeconds, cancelKeyCode
         case healthCheckTimeoutSeconds, llamaContextSize, llamaGpuLayers
         case refineMaxTokens, refineTemperature, whisperTemperature
         case insertionDelaySeconds, clipboardRestoreDelaySeconds
+        case a2dpRestoreTimeoutSeconds
     }
 
     /// Descriptions embedded in the file as a `_help` block so config.json is self-documenting.
     /// Read back is tolerant of this extra key, and it is re-emitted on every rewrite.
     private static let help: [String: String] = [
         "_note": "Edit values below and restart Voxly to apply. This _help block is informational and is ignored when loading.",
-        "duckVolumeFactor": "Output volume multiplier while recording (0.0–1.0). Lower = quieter background audio.",
         "minTapSeconds": "Minimum hold time in seconds; shorter taps are discarded without transcribing.",
         "whisperPort": "Local TCP port for the Whisper transcription server (loopback only).",
         "llamaPort": "Local TCP port for the Llama refinement server (loopback only).",
@@ -114,6 +114,7 @@ struct VoxlyConfig: Codable {
         "whisperTemperature": "Sampling temperature for transcription (0 = deterministic).",
         "insertionDelaySeconds": "Delay before pasting so the target app receives the clipboard.",
         "clipboardRestoreDelaySeconds": "Delay before restoring your previous clipboard after pasting.",
+        "a2dpRestoreTimeoutSeconds": "Max seconds to wait for the Bluetooth A2DP profile to return before giving up on the restore wait (audio stays muted past this timeout).",
     ]
 }
 

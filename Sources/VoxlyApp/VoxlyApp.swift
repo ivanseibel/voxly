@@ -24,7 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.start()
     }
     func applicationWillTerminate(_ notification: Notification) {
+        // Stop capture FIRST: restoring volume while the Bluetooth IOProc is still
+        // open in HFP would expose the degraded mono audio at full volume.
         coordinator.cancel()
+        // Then a synchronous, baseline-aware restore for anything still pending —
+        // the async restore path cannot complete before the process exits, so this
+        // is the last chance to restore volume, or to decide to stay muted.
+        AudioRecorder.pendingSilencerRestore?()
+        AudioRecorder.pendingSilencerRestore = nil
         ModelServerManager.shared.stop()
     }
 }
