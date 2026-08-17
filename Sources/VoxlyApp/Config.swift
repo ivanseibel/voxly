@@ -24,6 +24,7 @@ struct VoxlyConfig: Codable {
     var insertionDelaySeconds: Double = 0.08
     var clipboardRestoreDelaySeconds: Double = 0.65
     var a2dpRestoreTimeoutSeconds: Double = 15.0
+    var a2dpRestoreGiveUpSeconds: Double = 90.0
 
     init() {}
 
@@ -51,6 +52,7 @@ struct VoxlyConfig: Codable {
         insertionDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .insertionDelaySeconds) ?? d.insertionDelaySeconds
         clipboardRestoreDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .clipboardRestoreDelaySeconds) ?? d.clipboardRestoreDelaySeconds
         a2dpRestoreTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreTimeoutSeconds) ?? d.a2dpRestoreTimeoutSeconds
+        a2dpRestoreGiveUpSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreGiveUpSeconds) ?? d.a2dpRestoreGiveUpSeconds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -77,6 +79,7 @@ struct VoxlyConfig: Codable {
         try c.encode(insertionDelaySeconds, forKey: .insertionDelaySeconds)
         try c.encode(clipboardRestoreDelaySeconds, forKey: .clipboardRestoreDelaySeconds)
         try c.encode(a2dpRestoreTimeoutSeconds, forKey: .a2dpRestoreTimeoutSeconds)
+        try c.encode(a2dpRestoreGiveUpSeconds, forKey: .a2dpRestoreGiveUpSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -87,7 +90,7 @@ struct VoxlyConfig: Codable {
         case healthCheckTimeoutSeconds, llamaContextSize, llamaGpuLayers
         case refineMaxTokens, refineTemperature, whisperTemperature
         case insertionDelaySeconds, clipboardRestoreDelaySeconds
-        case a2dpRestoreTimeoutSeconds
+        case a2dpRestoreTimeoutSeconds, a2dpRestoreGiveUpSeconds
     }
 
     /// Descriptions embedded in the file as a `_help` block so config.json is self-documenting.
@@ -114,7 +117,8 @@ struct VoxlyConfig: Codable {
         "whisperTemperature": "Sampling temperature for transcription (0 = deterministic).",
         "insertionDelaySeconds": "Delay before pasting so the target app receives the clipboard.",
         "clipboardRestoreDelaySeconds": "Delay before restoring your previous clipboard after pasting.",
-        "a2dpRestoreTimeoutSeconds": "Max seconds to wait for the Bluetooth A2DP profile to return before giving up on the restore wait (audio stays muted past this timeout).",
+        "a2dpRestoreTimeoutSeconds": "Seconds to wait for the Bluetooth A2DP profile to return before slowing the polling down to once per second (audio stays muted while waiting).",
+        "a2dpRestoreGiveUpSeconds": "Hard deadline in seconds: if the A2DP baseline never returns, volume/mute are restored anyway so dictation keeps working (0 = wait forever, output may stay muted).",
     ]
 }
 

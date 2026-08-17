@@ -235,6 +235,9 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     private var captureStarted = false
     private var rateLeftBaseline = false
     private var waitingForBaseline = false
+    /// Guards against parallel confirm chains: the rate listener and the pending
+    /// poll would otherwise each keep their own timer chain alive.
+    private var confirmScheduled = false
     private var restoreStartedAt: Date?
     private var timeoutLogged = false
     private var listenersInstalled = false
@@ -286,6 +289,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
             bluetooth: AudioDeviceRate.isBluetooth(output))
         rateLeftBaseline = false
         waitingForBaseline = false
+        confirmScheduled = false
         timeoutLogged = false
         restoreStartedAt = nil
         installListeners(on: output)
@@ -503,18 +507,19 @@ final class RecordingOutputSilencer: @unchecked Sendable {
 
     // MARK: - Restore
 
-    private func scheduleBaselineConfirm() {
-        queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self, self.waitingForBaseline, let snap = self.snapshot else { return }
-            let elapsed = self.restoreStartedAt.map { Date().timeIntervalSince($0) } ?? 0
-            if elapsed > AppConfig.current.a2dpRestoreTimeoutSeconds {
-                if !self.timeoutLogged {
-                    self.timeoutLogged = true
-                    VoxlyLog.log("A2DP restore timeout (\(Int(AppConfig.current.a2dpRestoreTimeoutSeconds))s) — STAYING MUTED until baseline returns; rechecking every second")
-                }
-                self.queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.scheduleBaselineConfirm() }
-                return
-            }
+    /// Polls the output until the A2DP baseline rate returns. The device/rate check
+    /// ALWAYS runs first: the elapsed-time checks only decide the polling cadence and
+    /// the give-up point. An earlier version returned from the timeout branch before
+    /// reading the rate, so past the timeout the "recheck" loop never looked at the
+    /// rate again — the restore never completed, `isBusy` stayed true forever and every
+    /// later dictation failed with "still restoring audio" until the app was restarted.
+    private func scheduleBaselineConfirm(after delay: Double = 0.1) {
+        guard waitingForBaseline, !confirmScheduled else { return }
+        confirmScheduled = true
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.confirmScheduled = false
+            guard self.waitingForBaseline, let snap = self.snapshot else { return }
             let device = AudioDeviceRate.defaultOutputDevice() ?? 0
             if device != snap.outputID {
                 self.waitingForBaseline = false
@@ -522,12 +527,30 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 return
             }
             let rate = AudioDeviceRate.nominalSampleRate(snap.outputID)
-            if device == snap.outputID, rate == snap.baselineRate {
+            if rate == snap.baselineRate {
                 VoxlyLog.log("A2DP baseline confirmed — restoring audio")
                 self.waitingForBaseline = false
                 self.finishRestore()
+                return
+            }
+            let elapsed = self.restoreStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+            let giveUp = AppConfig.current.a2dpRestoreGiveUpSeconds
+            if giveUp > 0, elapsed > giveUp {
+                let rateText = rate.map { String(format: "%.0f", $0) } ?? "unknown"
+                VoxlyLog.log("A2DP baseline never returned after \(Int(elapsed))s (rate \(rateText) Hz vs baseline \(snap.baselineRate) Hz) — GIVING UP the wait and restoring volume/mute now so Voxly stays usable")
+                self.waitingForBaseline = false
+                self.finishRestore()
+                return
+            }
+            if elapsed > AppConfig.current.a2dpRestoreTimeoutSeconds {
+                if !self.timeoutLogged {
+                    self.timeoutLogged = true
+                    let giveUpText = giveUp > 0 ? "giving up at \(Int(giveUp))s" : "no give-up deadline configured"
+                    VoxlyLog.log("A2DP restore timeout (\(Int(AppConfig.current.a2dpRestoreTimeoutSeconds))s) — STAYING MUTED until baseline returns; rechecking every second, \(giveUpText)")
+                }
+                self.scheduleBaselineConfirm(after: 1.0)
             } else {
-                self.queue.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.scheduleBaselineConfirm() }
+                self.scheduleBaselineConfirm(after: 0.1)
             }
         }
     }
