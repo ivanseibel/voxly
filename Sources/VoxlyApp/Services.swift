@@ -99,6 +99,19 @@ enum AudioDeviceRate {
         return err == noErr && rate > 0 ? rate : nil
     }
 
+    /// Best-effort request for the device to run at `rate` again. Bluetooth drivers
+    /// may refuse while the HFP↔A2DP profile switch is still in flight, so callers
+    /// must keep polling `nominalSampleRate` instead of trusting the return value.
+    static func requestNominalSampleRate(_ device: AudioDeviceID, _ rate: Double) -> OSStatus {
+        var value = rate
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(device, &address) else { return OSStatus(kAudioHardwareUnknownPropertyError) }
+        return AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Double>.size), &value)
+    }
+
     static func transportType(_ device: AudioDeviceID) -> UInt32? {
         var transport = UInt32(0)
         var size = UInt32(MemoryLayout<UInt32>.size)
@@ -248,6 +261,11 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     private var watchdogStart: Date?
     private var watchdogRelaxed = false
     private var lastReapplyLog: Date?
+    private var captureStartedAt: Date?
+    /// Set when the user moved the volume themselves. Voxly then stops enforcing
+    /// mute, stops waiting for the A2DP baseline and never applies the snapshot:
+    /// fighting the user's own volume keys is worse than a degraded profile.
+    private var userOverride = false
     private var onRestored: (() -> Void)?
     private let busyLock = NSLock()
     private var _busy = false
@@ -292,6 +310,8 @@ final class RecordingOutputSilencer: @unchecked Sendable {
         confirmScheduled = false
         timeoutLogged = false
         restoreStartedAt = nil
+        captureStartedAt = nil
+        userOverride = false
         installListeners(on: output)
         if volumeState.muted {
             VoxlyLog.log("Output already muted — preserving mute state during dictation")
@@ -324,6 +344,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             self.captureStarted = true
+            self.captureStartedAt = Date()
             if self.snapshot?.bluetooth == true { self.startWatchdog() }
         }
     }
@@ -349,9 +370,14 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 self.abandonRestoreAfterOutputChange(oldID: snap.outputID, newID: current)
                 return
             }
+            if self.userOverride {
+                self.completeLeavingUserState(reason: "the user took over the volume during dictation")
+                return
+            }
             if self.snapshot?.bluetooth == true && self.rateLeftBaseline {
                 self.waitingForBaseline = true
                 self.restoreStartedAt = Date()
+                self.nudgeBackToBaseline()
                 self.scheduleBaselineConfirm()
             } else {
                 self.finishRestore()
@@ -390,6 +416,8 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 // output. The previous device may remain exactly as it was when the
                 // user switched routing during an active operation.
                 VoxlyLog.log("Terminating with changed default output (\(snap.outputID) → \(current)) — volume/mute left untouched; the previous output may remain in its switched-state")
+            } else if self.userOverride {
+                VoxlyLog.log("Terminating after the user took over the volume — volume/mute left exactly as the user set them")
             } else if !snap.bluetooth || rate == snap.baselineRate {
                 if !snap.wasMuted { OutputVolume.setMuted(false) }
                 OutputVolume.setLevel(snap.volume)
@@ -452,15 +480,41 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     }
 
     private func handleMuteEvent() {
-        guard installed, captureStarted else { return }
-        if !OutputVolume.isMuted() {
-            OutputVolume.setMuted(true)
-            let now = Date()
-            if lastReapplyLog == nil || now.timeIntervalSince(lastReapplyLog!) > 1 {
-                lastReapplyLog = now
-                VoxlyLog.log("Reapplied output mute after property event")
-            }
+        enforceMute(source: "property event")
+    }
+
+    /// Re-applies the mute that the HFP profile switch keeps dropping — unless the
+    /// USER is the one changing the volume. The two cases are told apart by the
+    /// volume level: the fade-down leaves the output at 0, so a profile switch
+    /// shows up as "unmuted, volume 0", while pressing the volume keys shows up as
+    /// "unmuted, volume > 0". In the second case Voxly hands control back instead
+    /// of re-muting every 50ms, which is what made manual volume changes bounce
+    /// back down during dictation.
+    private func enforceMute(source: String) {
+        guard installed, captureStarted, !userOverride else { return }
+        guard let state = OutputVolume.state() else { return }
+        if state.muted { return }
+        let sinceStart = captureStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        if state.volume > 0, sinceStart > AppConfig.current.userOverrideGraceSeconds {
+            releaseControlToUser(volume: state.volume, during: "dictation")
+            return
         }
+        OutputVolume.setMuted(true)
+        let now = Date()
+        if lastReapplyLog == nil || now.timeIntervalSince(lastReapplyLog!) > 1 {
+            lastReapplyLog = now
+            VoxlyLog.log("Reapplied output mute after \(source)")
+        }
+    }
+
+    /// Stops all mute enforcement for the rest of this dictation and marks the
+    /// snapshot as not-to-be-applied, so the restore leaves the volume where the
+    /// user put it.
+    private func releaseControlToUser(volume: Int, during phase: String) {
+        guard !userOverride else { return }
+        userOverride = true
+        stopWatchdog()
+        VoxlyLog.log("User set output volume to \(volume) during \(phase) — RELEASING volume/mute control; Voxly stops re-muting and will not apply its snapshot")
     }
 
     private func handleRunningEvent() {
@@ -482,15 +536,8 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     }
 
     private func watchdogTick() {
-        guard installed, captureStarted else { return }
-        if !OutputVolume.isMuted() {
-            OutputVolume.setMuted(true)
-            let now = Date()
-            if lastReapplyLog == nil || now.timeIntervalSince(lastReapplyLog!) > 1 {
-                lastReapplyLog = now
-                VoxlyLog.log("Watchdog reapplied output mute")
-            }
-        }
+        guard installed, captureStarted, !userOverride else { return }
+        enforceMute(source: "watchdog check")
         if !watchdogRelaxed, let start = watchdogStart, Date().timeIntervalSince(start) > 1.5 {
             watchdogRelaxed = true
             watchdog?.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(10))
@@ -507,13 +554,23 @@ final class RecordingOutputSilencer: @unchecked Sendable {
 
     // MARK: - Restore
 
+    /// Asks the output device to go back to its A2DP baseline rate instead of only
+    /// waiting for the headset to renegotiate on its own. The driver is free to
+    /// refuse while the profile is still switching, so the poll below still runs;
+    /// when it works the silent gap after a dictation gets noticeably shorter.
+    private func nudgeBackToBaseline() {
+        guard AppConfig.current.a2dpRestoreNudgeEnabled, let snap = snapshot, snap.baselineRate > 0 else { return }
+        let status = AudioDeviceRate.requestNominalSampleRate(snap.outputID, snap.baselineRate)
+        VoxlyLog.log("Requested output \(snap.outputID) back to baseline \(snap.baselineRate) Hz (OSStatus \(status))")
+    }
+
     /// Polls the output until the A2DP baseline rate returns. The device/rate check
     /// ALWAYS runs first: the elapsed-time checks only decide the polling cadence and
     /// the give-up point. An earlier version returned from the timeout branch before
     /// reading the rate, so past the timeout the "recheck" loop never looked at the
     /// rate again — the restore never completed, `isBusy` stayed true forever and every
     /// later dictation failed with "still restoring audio" until the app was restarted.
-    private func scheduleBaselineConfirm(after delay: Double = 0.1) {
+    private func scheduleBaselineConfirm(after delay: Double = 0.25) {
         guard waitingForBaseline, !confirmScheduled else { return }
         confirmScheduled = true
         queue.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -533,6 +590,15 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 self.finishRestore()
                 return
             }
+            // The wait leaves the output muted at volume 0. If the user unmutes and
+            // raises the volume themselves, they want audio NOW — stop waiting and
+            // keep their level instead of pulling it back to 0 on the next tick.
+            if let state = OutputVolume.state(), !state.muted, state.volume > 0 {
+                self.waitingForBaseline = false
+                self.releaseControlToUser(volume: state.volume, during: "the A2DP baseline wait")
+                self.completeLeavingUserState(reason: "the user raised the volume while Voxly waited for the A2DP baseline")
+                return
+            }
             let elapsed = self.restoreStartedAt.map { Date().timeIntervalSince($0) } ?? 0
             let giveUp = AppConfig.current.a2dpRestoreGiveUpSeconds
             if giveUp > 0, elapsed > giveUp {
@@ -550,7 +616,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 }
                 self.scheduleBaselineConfirm(after: 1.0)
             } else {
-                self.scheduleBaselineConfirm(after: 0.1)
+                self.scheduleBaselineConfirm(after: 0.25)
             }
         }
     }
@@ -579,6 +645,24 @@ final class RecordingOutputSilencer: @unchecked Sendable {
         restoreStartedAt = nil
         snapshot = nil
         setBusy(false)
+        let cb = onRestored; onRestored = nil
+        DispatchQueue.main.async { cb?() }
+    }
+
+    /// Finishes without touching volume or mute, leaving the output exactly as the
+    /// user left it. Used when the user took the volume over themselves: applying
+    /// the snapshot afterwards would undo their own change.
+    private func completeLeavingUserState(reason: String) {
+        guard installed else { return }
+        stopWatchdog()
+        removeListeners()
+        installed = false
+        captureStarted = false
+        waitingForBaseline = false
+        restoreStartedAt = nil
+        snapshot = nil
+        setBusy(false)
+        VoxlyLog.log("Restore finished without touching volume/mute — \(reason)")
         let cb = onRestored; onRestored = nil
         DispatchQueue.main.async { cb?() }
     }

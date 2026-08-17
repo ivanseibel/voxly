@@ -25,6 +25,8 @@ struct VoxlyConfig: Codable {
     var clipboardRestoreDelaySeconds: Double = 0.65
     var a2dpRestoreTimeoutSeconds: Double = 15.0
     var a2dpRestoreGiveUpSeconds: Double = 90.0
+    var a2dpRestoreNudgeEnabled: Bool = true
+    var userOverrideGraceSeconds: Double = 1.5
 
     init() {}
 
@@ -53,6 +55,8 @@ struct VoxlyConfig: Codable {
         clipboardRestoreDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .clipboardRestoreDelaySeconds) ?? d.clipboardRestoreDelaySeconds
         a2dpRestoreTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreTimeoutSeconds) ?? d.a2dpRestoreTimeoutSeconds
         a2dpRestoreGiveUpSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreGiveUpSeconds) ?? d.a2dpRestoreGiveUpSeconds
+        a2dpRestoreNudgeEnabled = try container.decodeIfPresent(Bool.self, forKey: .a2dpRestoreNudgeEnabled) ?? d.a2dpRestoreNudgeEnabled
+        userOverrideGraceSeconds = try container.decodeIfPresent(Double.self, forKey: .userOverrideGraceSeconds) ?? d.userOverrideGraceSeconds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -80,6 +84,8 @@ struct VoxlyConfig: Codable {
         try c.encode(clipboardRestoreDelaySeconds, forKey: .clipboardRestoreDelaySeconds)
         try c.encode(a2dpRestoreTimeoutSeconds, forKey: .a2dpRestoreTimeoutSeconds)
         try c.encode(a2dpRestoreGiveUpSeconds, forKey: .a2dpRestoreGiveUpSeconds)
+        try c.encode(a2dpRestoreNudgeEnabled, forKey: .a2dpRestoreNudgeEnabled)
+        try c.encode(userOverrideGraceSeconds, forKey: .userOverrideGraceSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -91,6 +97,7 @@ struct VoxlyConfig: Codable {
         case refineMaxTokens, refineTemperature, whisperTemperature
         case insertionDelaySeconds, clipboardRestoreDelaySeconds
         case a2dpRestoreTimeoutSeconds, a2dpRestoreGiveUpSeconds
+        case a2dpRestoreNudgeEnabled, userOverrideGraceSeconds
     }
 
     /// Descriptions embedded in the file as a `_help` block so config.json is self-documenting.
@@ -119,6 +126,8 @@ struct VoxlyConfig: Codable {
         "clipboardRestoreDelaySeconds": "Delay before restoring your previous clipboard after pasting.",
         "a2dpRestoreTimeoutSeconds": "Seconds to wait for the Bluetooth A2DP profile to return before slowing the polling down to once per second (audio stays muted while waiting).",
         "a2dpRestoreGiveUpSeconds": "Hard deadline in seconds: if the A2DP baseline never returns, volume/mute are restored anyway so dictation keeps working (0 = wait forever, output may stay muted).",
+        "a2dpRestoreNudgeEnabled": "Ask the Bluetooth output to return to its baseline sample rate right after capture instead of only waiting for the headset (shortens the silence after a dictation).",
+        "userOverrideGraceSeconds": "How long after capture starts Voxly treats volume changes as its own fade; after that, a manual volume change hands control back to you (no re-mute, no snapshot restore).",
     ]
 }
 
