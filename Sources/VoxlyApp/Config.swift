@@ -23,7 +23,7 @@ struct VoxlyConfig: Codable {
     var whisperTemperature: Double = 0.0
     var insertionDelaySeconds: Double = 0.08
     var clipboardRestoreDelaySeconds: Double = 0.65
-    var a2dpRestoreTimeoutSeconds: Double = 15.0
+    var a2dpRestoreTimeoutSeconds: Double = 4.0
 
     init() {}
 
@@ -114,7 +114,7 @@ struct VoxlyConfig: Codable {
         "whisperTemperature": "Sampling temperature for transcription (0 = deterministic).",
         "insertionDelaySeconds": "Delay before pasting so the target app receives the clipboard.",
         "clipboardRestoreDelaySeconds": "Delay before restoring your previous clipboard after pasting.",
-        "a2dpRestoreTimeoutSeconds": "Max seconds to wait for the Bluetooth A2DP profile to return before giving up on the restore wait (audio stays muted past this timeout).",
+        "a2dpRestoreTimeoutSeconds": "Max seconds to wait for the Bluetooth A2DP profile to return before restoring audio anyway (bounds the post-dictation mute).",
     ]
 }
 

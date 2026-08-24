@@ -206,7 +206,9 @@ enum OutputVolume {
 ///    is protected by CoreAudio property listeners plus a watchdog fallback;
 /// 5. on stop, restore waits — for Bluetooth outputs — until the sample rate
 ///    returns to baseline and stays there, so the user never hears the degraded
-///    mono transition; then unmute and fade-up.
+///    mono transition; then unmute and fade-up. The wait is bounded by
+///    `a2dpRestoreTimeoutSeconds` — past it, audio is restored anyway so the
+///    output never stays muted indefinitely.
 ///
 /// Output change: if the user switches the default output during capture or
 /// during the A2DP wait, volume/mute control is ABANDONED — the old snapshot is
@@ -272,11 +274,30 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     // MARK: - Public API
 
     /// Snapshots output state, applies mute and confirms it. Synchronous so the
-    /// caller can start capture immediately after confirmation.
+    /// caller can start capture immediately after confirmation. A pending
+    /// restore from a previous dictation is superseded instead of blocking:
+    /// starting a new capture mutes the output anyway, so there is no reason to
+    /// wait for the previous volume restore to finish.
     func prepare() throws {
-        guard !isBusy else { throw VoxlyError.processFailed("Previous dictation is still restoring audio — try again in a moment") }
+        var preserved: (volume: Int, muted: Bool)?
+        if isBusy {
+            queue.sync {
+                if let snap = snapshot, (AudioDeviceRate.defaultOutputDevice() ?? 0) == snap.outputID {
+                    preserved = (snap.volume, snap.wasMuted)
+                    VoxlyLog.log("New capture superseding pending restore — preserving original volume \(snap.volume), muted \(snap.wasMuted)")
+                }
+                abortRestoreForNewCapture()
+            }
+        }
         guard let output = AudioDeviceRate.defaultOutputDevice() else { throw VoxlyError.processFailed("No default output device") }
-        guard let volumeState = OutputVolume.state() else { throw VoxlyError.processFailed("Could not read system output volume") }
+        let volumeState: (volume: Int, muted: Bool)
+        if let preserved {
+            volumeState = preserved
+        } else if let read = OutputVolume.state() {
+            volumeState = read
+        } else {
+            throw VoxlyError.processFailed("Could not read system output volume")
+        }
         let baseline = AudioDeviceRate.nominalSampleRate(output) ?? 0
         snapshot = Snapshot(
             outputID: output,
@@ -352,6 +373,32 @@ final class RecordingOutputSilencer: @unchecked Sendable {
             } else {
                 self.finishRestore()
             }
+        }
+    }
+
+    /// Aborts an in-flight restore so a new capture can start immediately,
+    /// without waiting for the previous dictation's volume restore. The caller
+    /// preserves the original volume/mute snapshot before this drops it. Must be
+    /// called while already executing on `queue`.
+    private func abortRestoreForNewCapture() {
+        guard installed || isBusy else { return }
+        captureStarted = false
+        stopWatchdog()
+        removeListeners()
+        waitingForBaseline = false
+        restoreStartedAt = nil
+        snapshot = nil
+        installed = false
+        setBusy(false)
+        let cb = onRestored; onRestored = nil
+        if cb != nil { VoxlyLog.log("Superseded pending restore — dropped its completion callback") }
+        // An in-flight fade-up osascript may raise volume (and drop the Bluetooth
+        // mute flag) after prepare() re-applies the mute below; re-mute once it
+        // has had time to finish.
+        queue.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, self.installed, self.captureStarted, !OutputVolume.isMuted() else { return }
+            OutputVolume.setMuted(true)
+            VoxlyLog.log("Re-muted output after supersede (in-flight fade-up race)")
         }
     }
 
@@ -510,9 +557,11 @@ final class RecordingOutputSilencer: @unchecked Sendable {
             if elapsed > AppConfig.current.a2dpRestoreTimeoutSeconds {
                 if !self.timeoutLogged {
                     self.timeoutLogged = true
-                    VoxlyLog.log("A2DP restore timeout (\(Int(AppConfig.current.a2dpRestoreTimeoutSeconds))s) — STAYING MUTED until baseline returns; rechecking every second")
+                    let rate = AudioDeviceRate.nominalSampleRate(snap.outputID) ?? 0
+                    VoxlyLog.log("A2DP restore timeout (\(Int(AppConfig.current.a2dpRestoreTimeoutSeconds))s, rate \(rate) Hz vs baseline \(snap.baselineRate) Hz) — restoring audio anyway")
                 }
-                self.queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.scheduleBaselineConfirm() }
+                self.waitingForBaseline = false
+                self.finishRestore()
                 return
             }
             let device = AudioDeviceRate.defaultOutputDevice() ?? 0
@@ -901,9 +950,6 @@ final class AudioRecorder: @unchecked Sendable {
 
     func start() throws {
         guard !started else { return }
-        guard !silencer.isBusy else {
-            throw VoxlyError.processFailed("Previous dictation is still restoring audio — try again in a moment")
-        }
         stopping = false
         do {
             try silencer.prepare()

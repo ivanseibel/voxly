@@ -12,6 +12,7 @@ final class DictationCoordinator: NSObject {
     private var target: TextInserter.Target?
     private var monitor: Any?
     private var isRecording = false
+    private var isProcessing = false
     private var currentMode: DictationMode?
     var onCapsule: ((Bool) -> Void)?
 
@@ -50,6 +51,7 @@ final class DictationCoordinator: NSObject {
         begin(mode: mode)
     }
     private func begin(mode: DictationMode) {
+        guard !isProcessing else { return }
         currentMode = mode
         guard store.status.microphone else { fail("Allow Microphone to record"); return }
         guard store.status.accessibility else { fail("Allow Accessibility to insert text"); return }
@@ -75,6 +77,7 @@ final class DictationCoordinator: NSObject {
         store.capsule = .transcribing
         store.lastMessage = "Processing audio locally"
         onCapsule?(true)
+        isProcessing = true
         Task { await process(audio, mode: mode) }
     }
     func cancel() {
@@ -107,6 +110,7 @@ final class DictationCoordinator: NSObject {
             }
             let result = target.map { inserter.insert(final + " ", into: $0) } ?? .failed
             store.addHistory(raw: raw, final: final, result: result, mode: mode)
+            isProcessing = false
             store.capsule = result == .inserted ? .inserted : .copied
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
             let transcribed = String(format: "%.1f", transcriptionSeconds)
@@ -114,6 +118,7 @@ final class DictationCoordinator: NSObject {
             onCapsule?(true); DispatchQueue.main.asyncAfter(deadline: .now() + AppConfig.current.capsuleResetDelaySeconds) { [weak self] in self?.store.capsule = .ready; self?.onCapsule?(false) }
         } catch {
             shouldRemoveAudio = false
+            isProcessing = false
             if let saved = Self.preserveAudioForDebug(audio) { VoxlyLog.log("Audio from failure preserved at: \(saved.path)") }
             fail(error.localizedDescription)
         }
