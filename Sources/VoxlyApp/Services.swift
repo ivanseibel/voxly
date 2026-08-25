@@ -282,7 +282,11 @@ enum OutputVolume {
 ///    is protected by CoreAudio property listeners plus a watchdog fallback;
 /// 5. on stop, restore waits — for Bluetooth outputs — until the sample rate
 ///    returns to baseline and stays there, so the user never hears the degraded
-///    mono transition; then unmute and fade-up.
+///    mono transition; then unmute and fade-up. The wait cannot mute the output
+///    forever: `a2dpRestoreGiveUpSeconds` restores volume/mute anyway once the
+///    baseline has clearly stopped coming back, and raising the volume by hand
+///    hands control to the user (see `releaseControlToUser`). A new dictation
+///    does not have to wait for it either — it adopts the pending restore.
 ///
 /// Output change: if the user switches the default output during capture or
 /// during the A2DP wait, volume/mute control is ABANDONED — the old snapshot is
@@ -765,7 +769,8 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 if !self.timeoutLogged {
                     self.timeoutLogged = true
                     let giveUpText = giveUp > 0 ? "giving up at \(Int(giveUp))s" : "no give-up deadline configured"
-                    VoxlyLog.log("A2DP restore timeout (\(Int(AppConfig.current.a2dpRestoreTimeoutSeconds))s) — STAYING MUTED until baseline returns; rechecking every second, \(giveUpText)")
+                    let rateText = rate.map { String(format: "%.0f", $0) } ?? "unknown"
+                    VoxlyLog.log("A2DP restore timeout (\(Int(AppConfig.current.a2dpRestoreTimeoutSeconds))s, rate \(rateText) Hz vs baseline \(snap.baselineRate) Hz) — STAYING MUTED until baseline returns; rechecking every second, \(giveUpText)")
                 }
                 self.scheduleBaselineConfirm(after: 1.0)
             } else {
