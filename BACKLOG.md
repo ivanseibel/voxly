@@ -1,8 +1,32 @@
 # Voxly — backlog
 
-Updated on 2026-08-12.
+Updated on 2026-08-25.
 
 ## Tasks
+
+### BUG (open): overlapping dictation inserts text into the wrong target
+
+Now that `prepare()` adopts an in-flight restore, a new dictation can start
+while the previous one is still transcribing or refining. `begin(mode:)`
+overwrites the `target` property, and `process()` only reads `target` at
+insertion time — so dictation 1 inserts into the target captured by
+dictation 2.
+
+Observable effects:
+
+- text lands in the wrong field or app when the user switches windows between the two dictations;
+- capsule states interleave: dictation 1 finishes and sets `.inserted`,
+  resetting the capsule while dictation 2 is still recording;
+- Whisper and Llama get two concurrent requests on the same local servers.
+
+Intended fix, keeping back-to-back dictation: pass the captured target as a
+parameter to `process(_:mode:target:)` so each dictation inserts where it was
+started, instead of blocking the overlap.
+
+Remote commit `153383b` blocked this with an `isProcessing` guard in
+`DictationCoordinator`. Deliberately dropped: it blocks exactly the
+back-to-back dictation that adopting the restore enables, because processing
+overlaps the restore window.
 
 ### BUG (capture fixed, UX pending): mic Bluetooth não captura com headset como default output — "Local engine returned no text"
 
