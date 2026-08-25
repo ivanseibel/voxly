@@ -27,6 +27,7 @@ struct VoxlyConfig: Codable {
     var a2dpRestoreGiveUpSeconds: Double = 90.0
     var a2dpRestoreNudgeEnabled: Bool = true
     var userOverrideGraceSeconds: Double = 1.5
+    var volumeScriptTimeoutSeconds: Double = 6.0
 
     init() {}
 
@@ -57,6 +58,7 @@ struct VoxlyConfig: Codable {
         a2dpRestoreGiveUpSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreGiveUpSeconds) ?? d.a2dpRestoreGiveUpSeconds
         a2dpRestoreNudgeEnabled = try container.decodeIfPresent(Bool.self, forKey: .a2dpRestoreNudgeEnabled) ?? d.a2dpRestoreNudgeEnabled
         userOverrideGraceSeconds = try container.decodeIfPresent(Double.self, forKey: .userOverrideGraceSeconds) ?? d.userOverrideGraceSeconds
+        volumeScriptTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .volumeScriptTimeoutSeconds) ?? d.volumeScriptTimeoutSeconds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -86,6 +88,7 @@ struct VoxlyConfig: Codable {
         try c.encode(a2dpRestoreGiveUpSeconds, forKey: .a2dpRestoreGiveUpSeconds)
         try c.encode(a2dpRestoreNudgeEnabled, forKey: .a2dpRestoreNudgeEnabled)
         try c.encode(userOverrideGraceSeconds, forKey: .userOverrideGraceSeconds)
+        try c.encode(volumeScriptTimeoutSeconds, forKey: .volumeScriptTimeoutSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -97,7 +100,7 @@ struct VoxlyConfig: Codable {
         case refineMaxTokens, refineTemperature, whisperTemperature
         case insertionDelaySeconds, clipboardRestoreDelaySeconds
         case a2dpRestoreTimeoutSeconds, a2dpRestoreGiveUpSeconds
-        case a2dpRestoreNudgeEnabled, userOverrideGraceSeconds
+        case a2dpRestoreNudgeEnabled, userOverrideGraceSeconds, volumeScriptTimeoutSeconds
     }
 
     /// Descriptions embedded in the file as a `_help` block so config.json is self-documenting.
@@ -128,6 +131,7 @@ struct VoxlyConfig: Codable {
         "a2dpRestoreGiveUpSeconds": "Hard deadline in seconds: if the A2DP baseline never returns, volume/mute are restored anyway so dictation keeps working (0 = wait forever, output may stay muted).",
         "a2dpRestoreNudgeEnabled": "Ask the Bluetooth output to return to its baseline sample rate right after capture instead of only waiting for the headset (shortens the silence after a dictation).",
         "userOverrideGraceSeconds": "How long after capture starts Voxly treats volume changes as its own fade; after that, a manual volume change hands control back to you (no re-mute, no snapshot restore).",
+        "volumeScriptTimeoutSeconds": "Max seconds a volume/mute AppleScript may run before being killed, so a stuck script can never hold the audio restore back.",
     ]
 }
 

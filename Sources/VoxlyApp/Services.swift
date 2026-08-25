@@ -129,6 +129,53 @@ enum AudioDeviceRate {
     }
 }
 
+/// Direct CoreAudio reads of the output mute/volume state.
+///
+/// The mute watchdog used to read this through AppleScript, spawning one
+/// `osascript` per 50ms tick on the silencer's serial queue. Under load (Whisper
+/// plus Llama saturating the CPU) a single read was measured blocking for over a
+/// minute, which held up the restore work queued behind it: the A2DP nudge fired
+/// 65s after capture stopped and the user was locked out for that whole time.
+/// AppleScript also answers `missing value` for the volume of some Bluetooth
+/// devices, which made the read fail outright. These reads take microseconds and
+/// never spawn a process, so they are safe in the hot path.
+enum OutputHardware {
+    static func isMuted(_ device: AudioDeviceID) -> Bool? {
+        var value = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectHasProperty(device, &address),
+              AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else { return nil }
+        return value != 0
+    }
+
+    /// Output volume as a 0...1 scalar. Falls back to the first channel that
+    /// exposes the property, since some devices only implement it per channel.
+    static func volumeScalar(_ device: AudioDeviceID) -> Float? {
+        for element in [kAudioObjectPropertyElementMain, 1, 2] {
+            var value = Float(0)
+            var size = UInt32(MemoryLayout<Float>.size)
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: element)
+            guard AudioObjectHasProperty(device, &address),
+                  AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr else { continue }
+            return value
+        }
+        return nil
+    }
+
+    /// Volume on the same 0...100 scale AppleScript uses, for snapshots taken when
+    /// the AppleScript read itself fails.
+    static func volumeLevel(_ device: AudioDeviceID) -> Int? {
+        volumeScalar(device).map { Int((max(0, min(1, $0)) * 100).rounded()) }
+    }
+}
+
 /// System output volume/mute control via AppleScript. Every fade runs inside a
 /// SINGLE osascript process; one-process-per-step fades were measured at 2.5-4s
 /// and are avoided. Volume changes can drop the Bluetooth mute flag, so the
@@ -137,8 +184,14 @@ enum OutputVolume {
     private static let osascript = URL(fileURLWithPath: "/usr/bin/osascript")
 
     private static func run(_ script: String) -> String? {
-        (try? LocalProcess.run(executable: osascript, arguments: ["-e", script]))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            return try LocalProcess.run(executable: osascript, arguments: ["-e", script],
+                                        timeout: AppConfig.current.volumeScriptTimeoutSeconds)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            VoxlyLog.log("Volume AppleScript failed: \(String(describing: error).prefix(160))")
+            return nil
+        }
     }
 
     static func level() -> Int? { run("output volume of (get volume settings)").flatMap(Int.init) }
@@ -156,10 +209,11 @@ enum OutputVolume {
         let script = "set s to get volume settings\nreturn (output volume of s as text) & \"|\" & (output muted of s as text)"
         let out: String
         do {
-            out = try LocalProcess.run(executable: osascript, arguments: ["-e", script])
+            out = try LocalProcess.run(executable: osascript, arguments: ["-e", script],
+                                       timeout: AppConfig.current.volumeScriptTimeoutSeconds)
         } catch {
             VoxlyLog.log("AppleScript volume/mute read failed: \(String(describing: error).prefix(200))")
-            return nil
+            return hardwareState()
         }
         let fields = out.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: "|", omittingEmptySubsequences: false)
@@ -167,10 +221,19 @@ enum OutputVolume {
         guard fields.count == 2,
               let volume = Int(fields[0]),
               fields[1] == "true" || fields[1] == "false" else {
-            VoxlyLog.log("AppleScript volume/mute read returned unexpected format: \(out.prefix(120).replacingOccurrences(of: "\n", with: "\\n"))")
-            return nil
+            VoxlyLog.log("AppleScript volume/mute read returned unexpected format: \(out.prefix(120).replacingOccurrences(of: "\n", with: "\\n")) — falling back to CoreAudio")
+            return hardwareState()
         }
         return (volume, fields[1] == "true")
+    }
+
+    /// CoreAudio fallback for `state()`. AppleScript reports `missing value` for the
+    /// volume of some Bluetooth devices, and a snapshot must not fail just because
+    /// of that: without it, `prepare()` refuses the dictation outright.
+    private static func hardwareState() -> (volume: Int, muted: Bool)? {
+        guard let device = AudioDeviceRate.defaultOutputDevice(),
+              let volume = OutputHardware.volumeLevel(device) else { return nil }
+        return (volume, OutputHardware.isMuted(device) ?? false)
     }
 
     /// Fades the volume down to zero (~400-600ms), re-applying the mute flag after
@@ -267,8 +330,16 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     /// fighting the user's own volume keys is worse than a degraded profile.
     private var userOverride = false
     private var onRestored: (() -> Void)?
+    /// The part of a pending restore a new dictation needs to reuse, readable without
+    /// touching the silencer queue. Guarded by `busyLock`.
+    private struct PendingRestore {
+        let outputID: AudioDeviceID
+        let volume: Int
+    }
     private let busyLock = NSLock()
     private var _busy = false
+    private var _pendingRestore: PendingRestore?
+    private var _adoptionClaimed = false
     private var rateAddress = AudioObjectPropertyAddress(
         mSelector: kAudioDevicePropertyNominalSampleRate,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -294,7 +365,15 @@ final class RecordingOutputSilencer: @unchecked Sendable {
 
     /// Snapshots output state, applies mute and confirms it. Synchronous so the
     /// caller can start capture immediately after confirmation.
+    ///
+    /// A restore still in flight does NOT block the new dictation: it is adopted
+    /// (see `adoptPendingRestore`), because the output is already muted and the
+    /// original volume snapshot is still known.
     func prepare() throws {
+        if claimPendingRestore() {
+            queue.async { [weak self] in self?.applyAdoption() }
+            return
+        }
         guard !isBusy else { throw VoxlyError.processFailed("Previous dictation is still restoring audio — try again in a moment") }
         guard let output = AudioDeviceRate.defaultOutputDevice() else { throw VoxlyError.processFailed("No default output device") }
         guard let volumeState = OutputVolume.state() else { throw VoxlyError.processFailed("Could not read system output volume") }
@@ -312,12 +391,13 @@ final class RecordingOutputSilencer: @unchecked Sendable {
         restoreStartedAt = nil
         captureStartedAt = nil
         userOverride = false
+        setPendingRestore(nil)
         installListeners(on: output)
         if volumeState.muted {
             VoxlyLog.log("Output already muted — preserving mute state during dictation")
         } else {
             OutputVolume.setMuted(true)
-            guard OutputVolume.isMuted() else {
+            guard OutputHardware.isMuted(output) ?? OutputVolume.isMuted() else {
                 removeListeners()
                 snapshot = nil
                 throw VoxlyError.processFailed("Could not mute system output — check sound settings")
@@ -328,12 +408,77 @@ final class RecordingOutputSilencer: @unchecked Sendable {
         installed = true
     }
 
+    /// Takes over a restore that has not finished yet so a new dictation can start
+    /// right away. The output is still muted at volume 0 and the ORIGINAL volume
+    /// snapshot is still held, so both are reused: making the user wait for a
+    /// Bluetooth profile switch cost them the dictation they wanted to record now.
+    ///
+    /// The claim is taken under `busyLock` instead of on the silencer queue: the
+    /// queue may be running a fade (or a stuck AppleScript), and blocking the caller
+    /// on it would freeze the UI for exactly as long as the wait it replaces. Once
+    /// claimed, every restore-completion path bails out, so the pending restore can
+    /// no longer unmute behind the new capture's back; `applyAdoption()` then tidies
+    /// the queue-owned state.
+    private func claimPendingRestore() -> Bool {
+        busyLock.lock(); defer { busyLock.unlock() }
+        guard let pending = _pendingRestore, !_adoptionClaimed else { return false }
+        guard AudioDeviceRate.defaultOutputDevice() == pending.outputID else { return false }
+        _adoptionClaimed = true
+        VoxlyLog.log("New dictation adopted the in-flight audio restore on output \(pending.outputID) — output stays muted, keeping volume snapshot \(pending.volume)")
+        return true
+    }
+
+    private var adoptionClaimed: Bool {
+        busyLock.lock(); defer { busyLock.unlock() }
+        return _adoptionClaimed
+    }
+
+    /// Atomic counterpart of `claimPendingRestore()`: exactly one of the two wins.
+    /// Returns false when a new dictation already adopted this restore, in which case
+    /// the completion must not run — unmuting or restoring the snapshot now would do
+    /// it behind the back of the capture that is already starting.
+    private func claimCompletion() -> Bool {
+        busyLock.lock(); defer { busyLock.unlock() }
+        if _adoptionClaimed { return false }
+        _pendingRestore = nil
+        return true
+    }
+
+    private func setPendingRestore(_ pending: PendingRestore?) {
+        busyLock.lock(); _pendingRestore = pending; busyLock.unlock()
+    }
+
+    /// Queue-side half of the adoption: drops the baseline wait and the watchdog of
+    /// the restore that was taken over, and makes sure the output is still muted for
+    /// the capture that is starting.
+    private func applyAdoption() {
+        busyLock.lock(); _adoptionClaimed = false; _pendingRestore = nil; busyLock.unlock()
+        guard installed, let snap = snapshot else { return }
+        waitingForBaseline = false
+        restoreStartedAt = nil
+        timeoutLogged = false
+        captureStartedAt = nil
+        stopWatchdog()
+        // The adopted restore never completes on its own. Its completion only cleared
+        // the termination hook, which the new capture overwrites anyway.
+        onRestored = nil
+        if OutputHardware.isMuted(snap.outputID) == false { OutputVolume.setMuted(true) }
+        VoxlyLog.log("Adopted restore cleaned up — output \(snap.outputID) muted, volume snapshot \(snap.volume) (originally muted: \(snap.wasMuted))")
+    }
+
     /// Called immediately after capture started; runs the fade-down in parallel
     /// on the serial queue so the first words are never delayed by the fade.
     func startFadeDown() {
         guard let snap = snapshot else { return }
         queue.async { [weak self] in
             guard let self else { return }
+            // An adopted restore left the output already faded to 0; fading again
+            // would only block the queue for another ~750ms.
+            if OutputHardware.volumeLevel(snap.outputID) == 0 {
+                OutputVolume.setMuted(true)
+                VoxlyLog.log("Output already at volume 0 — skipping fade-down, mute re-applied")
+                return
+            }
             OutputVolume.fadeDown(from: snap.volume)
         }
     }
@@ -374,9 +519,12 @@ final class RecordingOutputSilencer: @unchecked Sendable {
                 self.completeLeavingUserState(reason: "the user took over the volume during dictation")
                 return
             }
-            if self.snapshot?.bluetooth == true && self.rateLeftBaseline {
+            if let snap = self.snapshot, snap.bluetooth, self.rateLeftBaseline {
                 self.waitingForBaseline = true
                 self.restoreStartedAt = Date()
+                // From here the restore can be adopted by a new dictation instead of
+                // rejecting it with "still restoring audio".
+                self.setPendingRestore(PendingRestore(outputID: snap.outputID, volume: snap.volume))
                 self.nudgeBackToBaseline()
                 self.scheduleBaselineConfirm()
             } else {
@@ -394,6 +542,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     func forceRestore() {
         queue.sync {
             guard self.installed else { return }
+            self.setPendingRestore(nil)
             self.captureStarted = false
             self.stopWatchdog()
             self.removeListeners()
@@ -491,12 +640,13 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     /// of re-muting every 50ms, which is what made manual volume changes bounce
     /// back down during dictation.
     private func enforceMute(source: String) {
-        guard installed, captureStarted, !userOverride else { return }
-        guard let state = OutputVolume.state() else { return }
-        if state.muted { return }
+        guard installed, captureStarted, !userOverride, let snap = snapshot else { return }
+        guard let muted = OutputHardware.isMuted(snap.outputID) else { return }
+        if muted { return }
         let sinceStart = captureStartedAt.map { Date().timeIntervalSince($0) } ?? 0
-        if state.volume > 0, sinceStart > AppConfig.current.userOverrideGraceSeconds {
-            releaseControlToUser(volume: state.volume, during: "dictation")
+        let level = OutputHardware.volumeLevel(snap.outputID) ?? 0
+        if level > 0, sinceStart > AppConfig.current.userOverrideGraceSeconds {
+            releaseControlToUser(volume: level, during: "dictation")
             return
         }
         OutputVolume.setMuted(true)
@@ -576,6 +726,9 @@ final class RecordingOutputSilencer: @unchecked Sendable {
         queue.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             self.confirmScheduled = false
+            // A new dictation may have claimed this restore between two ticks; it owns
+            // the mute now, so nothing here may unmute or restore the snapshot.
+            guard !self.adoptionClaimed else { return }
             guard self.waitingForBaseline, let snap = self.snapshot else { return }
             let device = AudioDeviceRate.defaultOutputDevice() ?? 0
             if device != snap.outputID {
@@ -593,9 +746,9 @@ final class RecordingOutputSilencer: @unchecked Sendable {
             // The wait leaves the output muted at volume 0. If the user unmutes and
             // raises the volume themselves, they want audio NOW — stop waiting and
             // keep their level instead of pulling it back to 0 on the next tick.
-            if let state = OutputVolume.state(), !state.muted, state.volume > 0 {
+            if OutputHardware.isMuted(snap.outputID) == false, let level = OutputHardware.volumeLevel(snap.outputID), level > 0 {
                 self.waitingForBaseline = false
-                self.releaseControlToUser(volume: state.volume, during: "the A2DP baseline wait")
+                self.releaseControlToUser(volume: level, during: "the A2DP baseline wait")
                 self.completeLeavingUserState(reason: "the user raised the volume while Voxly waited for the A2DP baseline")
                 return
             }
@@ -625,7 +778,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     /// used when the default output still matches the snapshot; otherwise use
     /// `abandonRestoreAfterOutputChange`.
     private func finishRestore() {
-        guard installed else { return }
+        guard installed, claimCompletion() else { return }
         if let snap = snapshot {
             OutputVolume.setLevel(0)
             if snap.wasMuted {
@@ -653,7 +806,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     /// user left it. Used when the user took the volume over themselves: applying
     /// the snapshot afterwards would undo their own change.
     private func completeLeavingUserState(reason: String) {
-        guard installed else { return }
+        guard installed, claimCompletion() else { return }
         stopWatchdog()
         removeListeners()
         installed = false
@@ -675,7 +828,7 @@ final class RecordingOutputSilencer: @unchecked Sendable {
     /// the old device through speculative mechanisms. Cleans up all internal
     /// state and delivers the restore completion normally.
     private func abandonRestoreAfterOutputChange(oldID: AudioDeviceID, newID: AudioDeviceID) {
-        guard installed else { return }
+        guard installed, claimCompletion() else { return }
         installed = false
         captureStarted = false
         waitingForBaseline = false
@@ -1008,9 +1161,6 @@ final class AudioRecorder: @unchecked Sendable {
 
     func start() throws {
         guard !started else { return }
-        guard !silencer.isBusy else {
-            throw VoxlyError.processFailed("Previous dictation is still restoring audio — try again in a moment")
-        }
         stopping = false
         do {
             try silencer.prepare()
@@ -1241,11 +1391,26 @@ struct LocalRefiner: Sendable {
 }
 
 enum LocalProcess {
-    static func run(executable: URL, arguments: [String]) throws -> String {
+    /// `timeout` kills a process that outlives it and throws instead of blocking the
+    /// caller forever. The volume scripts run on the silencer's serial queue, where a
+    /// stuck `osascript` was measured holding the restore back for over a minute.
+    static func run(executable: URL, arguments: [String], timeout: Double? = nil) throws -> String {
         let process = Process(); process.executableURL = executable; process.arguments = arguments
         let outputPipe = Pipe(); let errorPipe = Pipe()
         process.standardOutput = outputPipe; process.standardError = errorPipe
-        try process.run(); process.waitUntilExit()
+        try process.run()
+        if let timeout {
+            let deadline = Date().addingTimeInterval(timeout)
+            while process.isRunning, Date() < deadline { usleep(20_000) }
+            if process.isRunning {
+                process.terminate()
+                usleep(100_000)
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                process.waitUntilExit()
+                throw VoxlyError.processFailed("\(executable.lastPathComponent) timed out after \(String(format: "%.1f", timeout))s")
+            }
+        }
+        process.waitUntilExit()
         let output = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         let error = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         guard process.terminationStatus == 0 else { throw VoxlyError.processFailed(error.isEmpty ? "Local engine failed" : error) }
