@@ -11,13 +11,69 @@ final class ModelServerManager {
         guard !started else { return }
         started = true
         Task { @MainActor in
-            if !(await responds(to: LocalModelHTTP.whisperHealthURL)) {
-                whisper = launch(ModelLocator.shared.whisperServer, arguments: ["--host", "127.0.0.1", "--port", "\(AppConfig.current.whisperPort)", "-m", ModelLocator.shared.whisperModel.path, "-t", "\(AppConfig.current.whisperThreads)"])
-            }
-            if !(await responds(to: LocalModelHTTP.llamaHealthURL)) {
-                llama = launch(ModelLocator.shared.llamaServer, arguments: ["--host", "127.0.0.1", "--port", "\(AppConfig.current.llamaPort)", "-m", ModelLocator.shared.instructModel.path, "-ngl", AppConfig.current.llamaGpuLayers, "-t", "\(AppConfig.current.llamaThreads)", "-c", "\(AppConfig.current.llamaContextSize)", "--reasoning", "off", "--no-webui"])
-            }
+            whisper = await launchOwned(
+                executable: ModelLocator.shared.whisperServer,
+                port: AppConfig.current.whisperPort,
+                health: LocalModelHTTP.whisperHealthURL,
+                arguments: ["--host", "127.0.0.1", "--port", "\(AppConfig.current.whisperPort)", "-m", ModelLocator.shared.whisperModel.path, "-t", "\(AppConfig.current.whisperThreads)"])
+            llama = await launchOwned(
+                executable: ModelLocator.shared.llamaServer,
+                port: AppConfig.current.llamaPort,
+                health: LocalModelHTTP.llamaHealthURL,
+                arguments: ["--host", "127.0.0.1", "--port", "\(AppConfig.current.llamaPort)", "-m", ModelLocator.shared.instructModel.path, "-ngl", AppConfig.current.llamaGpuLayers, "-t", "\(AppConfig.current.llamaThreads)", "-c", "\(AppConfig.current.llamaContextSize)", "--reasoning", "off", "--no-webui"])
         }
+    }
+
+    /// Ends up owning the server process instead of adopting one that is already answering.
+    /// An adopted server can't be terminated on quit — `stop()` only owns what it launched —
+    /// so it survives every restart as an orphan, still holding the model and settings of the
+    /// run that spawned it. That is why changing `whisperModelFile` had no effect until the
+    /// leftover process was killed by hand.
+    private func launchOwned(executable: URL, port: Int, health: URL, arguments: [String]) async -> Process? {
+        if await responds(to: health) {
+            guard reclaim(port: port, executable: executable) else { return nil }
+            await waitForPortRelease(health: health)
+        }
+        return launch(executable, arguments: arguments)
+    }
+
+    /// Terminates leftover servers holding `port`. Returns false when the port belongs to a
+    /// process Voxly didn't spawn, in which case the existing server is left running and
+    /// reused rather than killed.
+    private func reclaim(port: Int, executable: URL) -> Bool {
+        let listening = (try? LocalProcess.run(
+            executable: URL(fileURLWithPath: "/usr/sbin/lsof"),
+            arguments: ["-ti", "tcp:\(port)", "-sTCP:LISTEN"],
+            timeout: AppConfig.current.serverReclaimTimeoutSeconds)) ?? ""
+        let pids = listening.split(whereSeparator: \.isNewline)
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
+        guard !pids.isEmpty else { return true }
+        var reclaimedEveryPID = true
+        for pid in pids {
+            let command = (try? LocalProcess.run(
+                executable: URL(fileURLWithPath: "/bin/ps"),
+                arguments: ["-p", "\(pid)", "-o", "command="],
+                timeout: AppConfig.current.serverReclaimTimeoutSeconds)) ?? ""
+            guard command.contains(executable.path) else {
+                VoxlyLog.log("Port \(port) is held by a process Voxly didn't launch (pid \(pid)) — reusing it instead of killing it")
+                reclaimedEveryPID = false
+                continue
+            }
+            kill(pid, SIGTERM)
+            VoxlyLog.log("Terminated orphaned \(executable.lastPathComponent) (pid \(pid)) so the new one loads the current config")
+        }
+        return reclaimedEveryPID
+    }
+
+    /// SIGTERM is asynchronous and the port stays bound for a moment. A replacement that
+    /// loses the bind race dies silently, because server output goes to `/dev/null`.
+    private func waitForPortRelease(health: URL) async {
+        let deadline = Date().addingTimeInterval(AppConfig.current.serverReclaimTimeoutSeconds)
+        while Date() < deadline {
+            if !(await responds(to: health)) { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        VoxlyLog.log("Orphaned server still answering \(health.absoluteString) — launching the replacement anyway")
     }
 
     func stop() {

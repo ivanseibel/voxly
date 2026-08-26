@@ -16,6 +16,7 @@ struct VoxlyConfig: Codable {
     var capsuleResetDelaySeconds: Double = 1.8
     var cancelKeyCode: Int = 53
     var healthCheckTimeoutSeconds: Double = 0.75
+    var serverReclaimTimeoutSeconds: Double = 3.0
     var llamaContextSize: Int = 2048
     var llamaGpuLayers: String = "all"
     var refineMaxTokens: Int = 256
@@ -53,6 +54,7 @@ struct VoxlyConfig: Codable {
         capsuleResetDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .capsuleResetDelaySeconds) ?? d.capsuleResetDelaySeconds
         cancelKeyCode = try container.decodeIfPresent(Int.self, forKey: .cancelKeyCode) ?? d.cancelKeyCode
         healthCheckTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .healthCheckTimeoutSeconds) ?? d.healthCheckTimeoutSeconds
+        serverReclaimTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .serverReclaimTimeoutSeconds) ?? d.serverReclaimTimeoutSeconds
         llamaContextSize = try container.decodeIfPresent(Int.self, forKey: .llamaContextSize) ?? d.llamaContextSize
         llamaGpuLayers = try container.decodeIfPresent(String.self, forKey: .llamaGpuLayers) ?? d.llamaGpuLayers
         refineMaxTokens = try container.decodeIfPresent(Int.self, forKey: .refineMaxTokens) ?? d.refineMaxTokens
@@ -89,6 +91,7 @@ struct VoxlyConfig: Codable {
         try c.encode(capsuleResetDelaySeconds, forKey: .capsuleResetDelaySeconds)
         try c.encode(cancelKeyCode, forKey: .cancelKeyCode)
         try c.encode(healthCheckTimeoutSeconds, forKey: .healthCheckTimeoutSeconds)
+        try c.encode(serverReclaimTimeoutSeconds, forKey: .serverReclaimTimeoutSeconds)
         try c.encode(llamaContextSize, forKey: .llamaContextSize)
         try c.encode(llamaGpuLayers, forKey: .llamaGpuLayers)
         try c.encode(refineMaxTokens, forKey: .refineMaxTokens)
@@ -114,7 +117,8 @@ struct VoxlyConfig: Codable {
         case minTapSeconds, whisperPort, llamaPort, whisperThreads, llamaThreads
         case engineStartRetries, retrySleepInvalidFormatSeconds, retrySleepStartFailureSeconds
         case tapBufferSize, levelMeterGain, capsuleResetDelaySeconds, cancelKeyCode
-        case healthCheckTimeoutSeconds, llamaContextSize, llamaGpuLayers
+        case healthCheckTimeoutSeconds, serverReclaimTimeoutSeconds
+        case llamaContextSize, llamaGpuLayers
         case refineMaxTokens, refineTemperature, whisperTemperature
         case whisperModelFile, whisperBeamSize, whisperBestOf
         case whisperSuppressNonSpeech, whisperNoSpeechThreshold, whisperPrompt
@@ -140,6 +144,7 @@ struct VoxlyConfig: Codable {
         "capsuleResetDelaySeconds": "How long the status capsule stays visible after finishing.",
         "cancelKeyCode": "macOS virtual key code that cancels an in-progress dictation (53 = Esc).",
         "healthCheckTimeoutSeconds": "Timeout in seconds for local server health checks.",
+        "serverReclaimTimeoutSeconds": "Max seconds spent terminating a model server left behind by a previous run and waiting for its port to be released before launching the replacement.",
         "llamaContextSize": "Llama context window size in tokens.",
         "llamaGpuLayers": "GPU layers offloaded to Metal ('all' or a number as a string).",
         "refineMaxTokens": "Maximum tokens generated during text refinement.",
