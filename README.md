@@ -151,7 +151,7 @@ See the `_help` block inside the generated file for the full list of options and
 Voxly is an early-stage open-source project under active development. Community contributions, bug reports, and feedback are very welcome!
 
 - Open an [Issue](https://github.com/ivanseibel/voxly/issues) or submit a [Pull Request](https://github.com/ivanseibel/voxly/pulls).
-- Check [BACKLOG.md](BACKLOG.md) to see current roadmap tasks and status notes.
+- Check [BACKLOG.md](BACKLOG.md) to see the open tasks and known bugs.
 
 ---
 

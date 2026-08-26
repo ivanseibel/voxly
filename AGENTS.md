@@ -24,4 +24,4 @@ The Whisper model file name comes from the `whisperModelFile` config key, so a l
 ## Developer Reference
 - **Build / Package**: Run `zsh scripts/package-app.sh`. This codesigns the app using the `Voxly Local Development` identity. Do not alter this signing mechanism as it maintains Accessibility permissions.
 - **Run**: `swift run Voxly` (development) or `open build/Voxly.app`.
-- **Handoff Document**: Always consult [BACKLOG.md](file:///Users/ivanseibel/dev/personal/voxly/BACKLOG.md) for current backlog items, bugs, and test instructions.
+- **Handoff Document**: Always consult [BACKLOG.md](file:///Users/ivanseibel/dev/personal/voxly/BACKLOG.md) for the open tasks and known bugs. It holds only pending work — finished work is not logged there, the git history is that record.
