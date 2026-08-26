@@ -13,6 +13,9 @@ final class DictationCoordinator: NSObject {
     private var monitor: Any?
     private var isRecording = false
     private var currentMode: DictationMode?
+    /// Identifies each dictation so a slow one that finishes after a newer dictation
+    /// started can still insert its own text without taking over the shared UI state.
+    private var latestDictationID = 0
     var onCapsule: ((Bool) -> Void)?
 
     init(store: VoxlyStore) { self.store = store; super.init(); recorder.onLevel = { [weak store] in store?.audioLevel = $0 } }
@@ -51,6 +54,7 @@ final class DictationCoordinator: NSObject {
     }
     private func begin(mode: DictationMode) {
         currentMode = mode
+        latestDictationID += 1
         guard store.status.microphone else { fail("Allow Microphone to record"); return }
         guard store.status.accessibility else { fail("Allow Accessibility to insert text"); return }
         guard store.status.models else { fail("Install local models before dictating"); return }
@@ -63,6 +67,11 @@ final class DictationCoordinator: NSObject {
         guard isRecording, let mode = currentMode else { return }
         currentMode = nil
         isRecording = false
+        // Snapshot the identity and the target of THIS dictation before returning control:
+        // a new dictation may begin while this one is still transcribing or refining.
+        let dictationID = latestDictationID
+        let capturedTarget = target
+        target = nil
         let audio = recorder.stopAndRemove(); store.audioLevel = 0
         let heldSeconds = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartedAt = nil
@@ -75,14 +84,25 @@ final class DictationCoordinator: NSObject {
         store.capsule = .transcribing
         store.lastMessage = "Processing audio locally"
         onCapsule?(true)
-        Task { await process(audio, mode: mode) }
+        Task { await process(audio, mode: mode, target: capturedTarget, dictationID: dictationID) }
     }
     func cancel() {
         guard isRecording || store.capsule != .ready else { return }
-        currentMode = nil; isRecording = false; _ = recorder.stopAndRemove(); recorder.discard(); store.audioLevel = 0; store.capsule = .ready; store.lastMessage = "Dictation canceled"; onCapsule?(false)
+        // Bumping the ID also detaches any dictation still processing, so it can no longer
+        // overwrite the canceled state (its text is still inserted where it started).
+        latestDictationID += 1
+        currentMode = nil; isRecording = false; target = nil; _ = recorder.stopAndRemove(); recorder.discard(); store.audioLevel = 0; store.capsule = .ready; store.lastMessage = "Dictation canceled"; onCapsule?(false)
     }
-    private func process(_ audio: URL?, mode: DictationMode) async {
-        guard let audio else { fail("No usable audio captured"); return }
+
+    /// True while `dictationID` is the most recently started dictation. Older dictations must
+    /// keep inserting and recording history, but stop driving the capsule and status message.
+    private func ownsSharedUI(_ dictationID: Int) -> Bool { dictationID == latestDictationID }
+
+    private func process(_ audio: URL?, mode: DictationMode, target: TextInserter.Target?, dictationID: Int) async {
+        guard let audio else {
+            if ownsSharedUI(dictationID) { fail("No usable audio captured") } else { VoxlyLog.log("No usable audio captured in superseded dictation") }
+            return
+        }
         let startedAt = Date()
         var shouldRemoveAudio = true
         defer { if shouldRemoveAudio { try? FileManager.default.removeItem(at: audio) } }
@@ -96,26 +116,38 @@ final class DictationCoordinator: NSObject {
             }
             else {
                 VoxlyLog.log("Starting refinement — mode: '\(mode.name)', instructions: \(mode.instructions.prefix(60))...")
-                store.capsule = .refining(mode.name)
-                store.lastMessage = "Refining text locally"
-                onCapsule?(true)
+                if ownsSharedUI(dictationID) {
+                    store.capsule = .refining(mode.name)
+                    store.lastMessage = "Refining text locally"
+                    onCapsule?(true)
+                }
                 do { final = try await Task.detached { [refiner] in try await refiner.refine(raw, mode: mode) }.value }
                 catch {
                     VoxlyLog.log("Refinement failed completely: \(error) — using raw text")
-                    final = raw; store.lastMessage = "Refinement failed; raw text kept"
+                    final = raw
+                    if ownsSharedUI(dictationID) { store.lastMessage = "Refinement failed; raw text kept" }
                 }
             }
             let result = target.map { inserter.insert(final + " ", into: $0) } ?? .failed
             store.addHistory(raw: raw, final: final, result: result, mode: mode)
+            guard ownsSharedUI(dictationID) else {
+                VoxlyLog.log("Superseded dictation finished (\(result)) — inserted into its own target, capsule left to the newer dictation")
+                return
+            }
             store.capsule = result == .inserted ? .inserted : .copied
             let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
             let transcribed = String(format: "%.1f", transcriptionSeconds)
             store.lastMessage = result == .inserted ? "Text inserted · processed \(elapsed)s (Whisper \(transcribed)s)" : "Text in clipboard · processed \(elapsed)s"
-            onCapsule?(true); DispatchQueue.main.asyncAfter(deadline: .now() + AppConfig.current.capsuleResetDelaySeconds) { [weak self] in self?.store.capsule = .ready; self?.onCapsule?(false) }
+            onCapsule?(true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + AppConfig.current.capsuleResetDelaySeconds) { [weak self] in
+                guard let self, self.ownsSharedUI(dictationID) else { return }
+                self.store.capsule = .ready; self.onCapsule?(false)
+            }
         } catch {
             shouldRemoveAudio = false
             if let saved = Self.preserveAudioForDebug(audio) { VoxlyLog.log("Audio from failure preserved at: \(saved.path)") }
-            fail(error.localizedDescription)
+            if ownsSharedUI(dictationID) { fail(error.localizedDescription) }
+            else { VoxlyLog.log("Superseded dictation failed: \(error.localizedDescription)") }
         }
     }
     private static func preserveAudioForDebug(_ audio: URL) -> URL? {
