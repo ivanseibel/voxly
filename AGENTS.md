@@ -19,6 +19,7 @@ The codebase is structured as a Swift Package with source files under [Sources/V
 ## Local Engines Configuration
 Natively-built arm64/Metal binaries and models reside in:
 `~/Library/Application Support/Voxly/Models/` (symlinked as `whisper-cli`, `whisper-server`, `llama-cli`, `llama-server`, `ggml-small.bin`, `instruct.gguf`).
+The Whisper model file name comes from the `whisperModelFile` config key, so a larger model (e.g. `ggml-large-v3-turbo-q5_0.bin`) can be dropped in the same folder without code changes.
 
 ## Developer Reference
 - **Build / Package**: Run `zsh scripts/package-app.sh`. This codesigns the app using the `Voxly Local Development` identity. Do not alter this signing mechanism as it maintains Accessibility permissions.

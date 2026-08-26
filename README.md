@@ -109,7 +109,7 @@ Voxly requires native binaries and models located in `~/Library/Application Supp
 ```text
 ~/Library/Application Support/Voxly/Models/
 ├── whisper-cli        # whisper.cpp (arm64 / Metal)
-├── ggml-small.bin     # Whisper speech recognition model
+├── ggml-small.bin     # Whisper speech recognition model (see `whisperModelFile`)
 ├── llama-cli          # (Optional) llama.cpp (arm64 / Metal)
 └── instruct.gguf      # (Optional) Llama text refinement model
 ```
@@ -138,6 +138,9 @@ Common options include:
 | `whisperThreads` / `llamaThreads` | `8` | CPU threads per local model. |
 | `llamaContextSize` | `2048` | Llama context window (tokens). |
 | `refineMaxTokens` | `256` | Max tokens generated during refinement. |
+| `whisperModelFile` | `ggml-small.bin` | Whisper model file to load; swap for a larger one to trade latency for accuracy. |
+| `whisperPrompt` | `""` | Vocabulary hint (proper nouns, jargon) biasing transcription. |
+| `whisperBeamSize` / `whisperBestOf` | `5` / `5` | Beam search width and candidate count for transcription. |
 
 See the `_help` block inside the generated file for the full list of options and descriptions.
 

@@ -21,6 +21,12 @@ struct VoxlyConfig: Codable {
     var refineMaxTokens: Int = 256
     var refineTemperature: Double = 0.0
     var whisperTemperature: Double = 0.0
+    var whisperModelFile: String = "ggml-small.bin"
+    var whisperBeamSize: Int = 5
+    var whisperBestOf: Int = 5
+    var whisperSuppressNonSpeech: Bool = true
+    var whisperNoSpeechThreshold: Double = 0.6
+    var whisperPrompt: String = ""
     var insertionDelaySeconds: Double = 0.08
     var clipboardRestoreDelaySeconds: Double = 0.65
     var a2dpRestoreTimeoutSeconds: Double = 15.0
@@ -52,6 +58,12 @@ struct VoxlyConfig: Codable {
         refineMaxTokens = try container.decodeIfPresent(Int.self, forKey: .refineMaxTokens) ?? d.refineMaxTokens
         refineTemperature = try container.decodeIfPresent(Double.self, forKey: .refineTemperature) ?? d.refineTemperature
         whisperTemperature = try container.decodeIfPresent(Double.self, forKey: .whisperTemperature) ?? d.whisperTemperature
+        whisperModelFile = try container.decodeIfPresent(String.self, forKey: .whisperModelFile) ?? d.whisperModelFile
+        whisperBeamSize = try container.decodeIfPresent(Int.self, forKey: .whisperBeamSize) ?? d.whisperBeamSize
+        whisperBestOf = try container.decodeIfPresent(Int.self, forKey: .whisperBestOf) ?? d.whisperBestOf
+        whisperSuppressNonSpeech = try container.decodeIfPresent(Bool.self, forKey: .whisperSuppressNonSpeech) ?? d.whisperSuppressNonSpeech
+        whisperNoSpeechThreshold = try container.decodeIfPresent(Double.self, forKey: .whisperNoSpeechThreshold) ?? d.whisperNoSpeechThreshold
+        whisperPrompt = try container.decodeIfPresent(String.self, forKey: .whisperPrompt) ?? d.whisperPrompt
         insertionDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .insertionDelaySeconds) ?? d.insertionDelaySeconds
         clipboardRestoreDelaySeconds = try container.decodeIfPresent(Double.self, forKey: .clipboardRestoreDelaySeconds) ?? d.clipboardRestoreDelaySeconds
         a2dpRestoreTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .a2dpRestoreTimeoutSeconds) ?? d.a2dpRestoreTimeoutSeconds
@@ -82,6 +94,12 @@ struct VoxlyConfig: Codable {
         try c.encode(refineMaxTokens, forKey: .refineMaxTokens)
         try c.encode(refineTemperature, forKey: .refineTemperature)
         try c.encode(whisperTemperature, forKey: .whisperTemperature)
+        try c.encode(whisperModelFile, forKey: .whisperModelFile)
+        try c.encode(whisperBeamSize, forKey: .whisperBeamSize)
+        try c.encode(whisperBestOf, forKey: .whisperBestOf)
+        try c.encode(whisperSuppressNonSpeech, forKey: .whisperSuppressNonSpeech)
+        try c.encode(whisperNoSpeechThreshold, forKey: .whisperNoSpeechThreshold)
+        try c.encode(whisperPrompt, forKey: .whisperPrompt)
         try c.encode(insertionDelaySeconds, forKey: .insertionDelaySeconds)
         try c.encode(clipboardRestoreDelaySeconds, forKey: .clipboardRestoreDelaySeconds)
         try c.encode(a2dpRestoreTimeoutSeconds, forKey: .a2dpRestoreTimeoutSeconds)
@@ -98,6 +116,8 @@ struct VoxlyConfig: Codable {
         case tapBufferSize, levelMeterGain, capsuleResetDelaySeconds, cancelKeyCode
         case healthCheckTimeoutSeconds, llamaContextSize, llamaGpuLayers
         case refineMaxTokens, refineTemperature, whisperTemperature
+        case whisperModelFile, whisperBeamSize, whisperBestOf
+        case whisperSuppressNonSpeech, whisperNoSpeechThreshold, whisperPrompt
         case insertionDelaySeconds, clipboardRestoreDelaySeconds
         case a2dpRestoreTimeoutSeconds, a2dpRestoreGiveUpSeconds
         case a2dpRestoreNudgeEnabled, userOverrideGraceSeconds, volumeScriptTimeoutSeconds
@@ -125,6 +145,12 @@ struct VoxlyConfig: Codable {
         "refineMaxTokens": "Maximum tokens generated during text refinement.",
         "refineTemperature": "Sampling temperature for refinement (0 = deterministic).",
         "whisperTemperature": "Sampling temperature for transcription (0 = deterministic).",
+        "whisperModelFile": "Whisper model file name inside the Models folder. Swap for a bigger model (e.g. 'ggml-large-v3-turbo-q5_0.bin') to improve accuracy at the cost of some latency.",
+        "whisperBeamSize": "Beam search width for transcription. The whisper server defaults to greedy decoding; 5 matches the whisper.cpp CLI default and is noticeably more accurate.",
+        "whisperBestOf": "Number of candidate transcriptions kept per decoding attempt (higher = more accurate, slower).",
+        "whisperSuppressNonSpeech": "Suppress non-speech tokens so near-silent audio stops producing '[Music]'-style hallucinations.",
+        "whisperNoSpeechThreshold": "Probability above which a segment is treated as silence and dropped (0.6 = whisper.cpp default; raise it if real speech is being discarded).",
+        "whisperPrompt": "Initial prompt that biases transcription toward your vocabulary. List proper nouns, product names, and jargon here, comma separated. Empty = no bias.",
         "insertionDelaySeconds": "Delay before pasting so the target app receives the clipboard.",
         "clipboardRestoreDelaySeconds": "Delay before restoring your previous clipboard after pasting.",
         "a2dpRestoreTimeoutSeconds": "Seconds to wait for the Bluetooth A2DP profile to return before slowing the polling down to once per second (audio stays muted while waiting).",

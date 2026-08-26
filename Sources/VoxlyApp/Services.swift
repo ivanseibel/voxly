@@ -57,7 +57,7 @@ final class ModelLocator: @unchecked Sendable {
             .appendingPathComponent("Voxly/Models", isDirectory: true)
     }
     var whisper: URL { root.appendingPathComponent("whisper-cli") }
-    var whisperModel: URL { root.appendingPathComponent("ggml-small.bin") }
+    var whisperModel: URL { root.appendingPathComponent(AppConfig.current.whisperModelFile) }
     var llama: URL { root.appendingPathComponent("llama-cli") }
     var instructModel: URL { root.appendingPathComponent("instruct.gguf") }
     var whisperServer: URL { root.appendingPathComponent("whisper-server") }
@@ -1216,7 +1216,7 @@ struct LocalTranscriber: Sendable {
         let audioBytes = (attributes?[.size] as? Int) ?? -1
         VoxlyLog.log("Transcribing audio (\(audioBytes) bytes, language: \(language.whisperCode))")
         do {
-            let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: ["response_format": "json", "language": language.whisperCode, "temperature": "\(AppConfig.current.whisperTemperature)"])
+            let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: Self.serverFields(language: language))
             let raw = try JSONDecoder().decode(LocalModelHTTP.WhisperResponse.self, from: data).text
             let cleaned = cleanText(raw)
             if !cleaned.isEmpty { return cleaned }
@@ -1232,6 +1232,25 @@ struct LocalTranscriber: Sendable {
         return cliCleaned
     }
 
+    /// Decoding parameters for `whisper-server`. Its defaults are weaker than the whisper.cpp
+    /// CLI's (greedy decoding, `best_of 2`), so accuracy-relevant knobs are always sent
+    /// explicitly instead of relying on how the server happens to be launched.
+    private static func serverFields(language: DictationLanguage) -> [String: String] {
+        let config = AppConfig.current
+        var fields = [
+            "response_format": "json",
+            "language": language.whisperCode,
+            "temperature": "\(config.whisperTemperature)",
+            "beam_size": "\(config.whisperBeamSize)",
+            "best_of": "\(config.whisperBestOf)",
+            "no_speech_thold": "\(config.whisperNoSpeechThreshold)",
+        ]
+        if config.whisperSuppressNonSpeech { fields["suppress_nst"] = "true" }
+        let prompt = config.whisperPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !prompt.isEmpty { fields["prompt"] = prompt }
+        return fields
+    }
+
     private func cleanText(_ text: String) -> String {
         let cleaned = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1243,8 +1262,16 @@ struct LocalTranscriber: Sendable {
         let locator = ModelLocator.shared
         guard FileManager.default.isExecutableFile(atPath: locator.whisper.path) else { throw VoxlyError.executableMissing("whisper.cpp") }
         guard FileManager.default.fileExists(atPath: locator.whisperModel.path) else { throw VoxlyError.executableMissing("Whisper model") }
-        var arguments = ["-m", locator.whisperModel.path, "-f", audio.path, "--no-timestamps", "--no-prints", "-t", "\(AppConfig.current.whisperThreads)"]
+        let config = AppConfig.current
+        var arguments = ["-m", locator.whisperModel.path, "-f", audio.path, "--no-timestamps", "--no-prints", "-t", "\(config.whisperThreads)"]
         arguments += ["-l", language.whisperCode]
+        // Mirror the server's decoding settings so the fallback can't silently transcribe
+        // with different parameters than the primary path.
+        arguments += ["-bs", "\(config.whisperBeamSize)", "-bo", "\(config.whisperBestOf)"]
+        arguments += ["-nth", "\(config.whisperNoSpeechThreshold)"]
+        if config.whisperSuppressNonSpeech { arguments += ["-sns"] }
+        let prompt = config.whisperPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !prompt.isEmpty { arguments += ["--prompt", prompt] }
         let output = try LocalProcess.run(executable: locator.whisper, arguments: arguments)
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
