@@ -107,7 +107,7 @@ final class DictationCoordinator: NSObject {
         var shouldRemoveAudio = true
         defer { if shouldRemoveAudio { try? FileManager.default.removeItem(at: audio) } }
         do {
-            let raw = try await Task.detached { [transcriber] in try await transcriber.transcribe(audio: audio, language: mode.language) }.value
+            let raw = try await Task.detached { [transcriber] in try await transcriber.transcribe(audio: audio, language: mode.language, vocabulary: mode.vocabulary) }.value
             let transcriptionSeconds = Date().timeIntervalSince(startedAt)
             let final: String
             if !mode.usesRefinement {

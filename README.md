@@ -35,6 +35,7 @@ Voxly runs entirely on your Mac using hardware-accelerated (arm64 / Metal) local
 - **100% Local & Private:** Transcribes locally via `whisper.cpp` and refines text via `llama.cpp`. Audio buffers are deleted immediately after processing.
 - **Persistent High-Performance Servers:** Uses local persistent daemon servers to eliminate model reloading latency for near-instant response.
 - **Multiple Dictation Modes:** Configure separate speech modes (e.g., *Faithful transcription*, *Clean text*) with custom global hotkeys, languages, and local instructions.
+- **Per-Mode Vocabulary:** Give each mode the names, products, and jargon it should transcribe correctly. The list is stored locally with the mode and applies to the next dictation — no restart, nothing uploaded.
 - **Direct Cursor Insertion:** Injects transcribed text into the focused text field using macOS Accessibility APIs, with automatic fallback to clipboard paste (`⌘V`).
 - **Permissions Diagnostics:** Built-in setup verification for Microphone, Accessibility permissions, and local engine files.
 - **Local History:** Lightweight search for past transcriptions. Audio is never stored.
@@ -100,6 +101,14 @@ Assign different global modifier keys to distinct dictation modes:
 > [!TIP]
 > Pressing **Escape** during an active dictation immediately cancels recording.
 
+### Vocabulary
+
+Each mode has a **Vocabulary** field: a comma-separated list of proper nouns, product names, and jargon that Whisper should get right — for example `Voxly, Kubernetes, PostgreSQL, whisper.cpp`. It is sent as Whisper's initial prompt, so the model prefers those spellings over similar-sounding words.
+
+- The list is saved with the mode in your local user defaults and takes effect on the next dictation.
+- Terms that matter in every mode go in the `whisperPrompt` config key instead; the global list and the mode list are combined.
+- Whisper accepts roughly 224 tokens of prompt. Voxly cuts longer lists on a term boundary and logs what it dropped, so keep each list to the words that actually get misheard.
+
 ---
 
 ## ⚙ Local Engines & Architecture
@@ -139,7 +148,7 @@ Common options include:
 | `llamaContextSize` | `2048` | Llama context window (tokens). |
 | `refineMaxTokens` | `256` | Max tokens generated during refinement. |
 | `whisperModelFile` | `ggml-small.bin` | Whisper model file to load; swap for a larger one to trade latency for accuracy. |
-| `whisperPrompt` | `""` | Vocabulary hint (proper nouns, jargon) biasing transcription. |
+| `whisperPrompt` | `""` | Vocabulary every mode inherits; combined with each mode's own Vocabulary field. |
 | `whisperBeamSize` / `whisperBestOf` | `5` / `5` | Beam search width and candidate count for transcription. |
 
 See the `_help` block inside the generated file for the full list of options and descriptions.

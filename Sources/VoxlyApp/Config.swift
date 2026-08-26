@@ -155,7 +155,7 @@ struct VoxlyConfig: Codable {
         "whisperBestOf": "Number of candidate transcriptions kept per decoding attempt (higher = more accurate, slower).",
         "whisperSuppressNonSpeech": "Suppress non-speech tokens so near-silent audio stops producing '[Music]'-style hallucinations.",
         "whisperNoSpeechThreshold": "Probability above which a segment is treated as silence and dropped (0.6 = whisper.cpp default; raise it if real speech is being discarded).",
-        "whisperPrompt": "Initial prompt that biases transcription toward your vocabulary. List proper nouns, product names, and jargon here, comma separated. Empty = no bias.",
+        "whisperPrompt": "Vocabulary every mode inherits: proper nouns, product names and jargon, comma separated. Each mode can add its own list in the Vocabulary field of its editor; the two are combined. Empty = no bias.",
         "insertionDelaySeconds": "Delay before pasting so the target app receives the clipboard.",
         "clipboardRestoreDelaySeconds": "Delay before restoring your previous clipboard after pasting.",
         "a2dpRestoreTimeoutSeconds": "Seconds to wait for the Bluetooth A2DP profile to return before slowing the polling down to once per second (audio stays muted while waiting).",

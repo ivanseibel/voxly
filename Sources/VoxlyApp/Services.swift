@@ -1211,12 +1211,13 @@ final class AudioRecorder: @unchecked Sendable {
 struct LocalTranscriber: Sendable {
     private static let blankAudioMarkers: Set<String> = ["[blank_audio]", "[silence]", "(silence)", "[no speech]"]
 
-    func transcribe(audio: URL, language: DictationLanguage) async throws -> String {
+    func transcribe(audio: URL, language: DictationLanguage, vocabulary: String = "") async throws -> String {
         let attributes = try? FileManager.default.attributesOfItem(atPath: audio.path)
         let audioBytes = (attributes?[.size] as? Int) ?? -1
         VoxlyLog.log("Transcribing audio (\(audioBytes) bytes, language: \(language.whisperCode))")
+        let prompt = Self.initialPrompt(vocabulary: vocabulary)
         do {
-            let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: Self.serverFields(language: language))
+            let data = try await LocalModelHTTP.multipart(url: LocalModelHTTP.whisperURL, file: audio, fields: Self.serverFields(language: language, prompt: prompt))
             let raw = try JSONDecoder().decode(LocalModelHTTP.WhisperResponse.self, from: data).text
             let cleaned = cleanText(raw)
             if !cleaned.isEmpty { return cleaned }
@@ -1224,7 +1225,7 @@ struct LocalTranscriber: Sendable {
         } catch {
             VoxlyLog.log("HTTP error during transcription: \(error) — trying CLI fallback")
         }
-        let cliCleaned = cleanText(try transcribeCLI(audio: audio, language: language))
+        let cliCleaned = cleanText(try transcribeCLI(audio: audio, language: language, prompt: prompt))
         guard !cliCleaned.isEmpty else {
             VoxlyLog.log("No speech detected in audio")
             throw VoxlyError.noAudio
@@ -1235,7 +1236,7 @@ struct LocalTranscriber: Sendable {
     /// Decoding parameters for `whisper-server`. Its defaults are weaker than the whisper.cpp
     /// CLI's (greedy decoding, `best_of 2`), so accuracy-relevant knobs are always sent
     /// explicitly instead of relying on how the server happens to be launched.
-    private static func serverFields(language: DictationLanguage) -> [String: String] {
+    private static func serverFields(language: DictationLanguage, prompt: String) -> [String: String] {
         let config = AppConfig.current
         var fields = [
             "response_format": "json",
@@ -1246,9 +1247,46 @@ struct LocalTranscriber: Sendable {
             "no_speech_thold": "\(config.whisperNoSpeechThreshold)",
         ]
         if config.whisperSuppressNonSpeech { fields["suppress_nst"] = "true" }
-        let prompt = config.whisperPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !prompt.isEmpty { fields["prompt"] = prompt }
         return fields
+    }
+
+    /// Whisper only accepts an initial prompt of about `n_text_ctx / 2` tokens (≈224 for
+    /// every ggml model Voxly ships with); anything past that is dropped by the decoder
+    /// without warning. Cut on a term boundary and log it instead, so a glossary that
+    /// grew too long is visible rather than silently half-applied.
+    private static let promptCharacterLimit = 700
+
+    /// Builds the initial prompt from the global `whisperPrompt` config key plus the
+    /// per-mode vocabulary. The global list is the base every mode inherits (names that
+    /// always matter); the mode list adds the words that only that mode needs.
+    static func initialPrompt(vocabulary: String) -> String {
+        mergedPrompt(global: AppConfig.current.whisperPrompt, mode: vocabulary)
+    }
+
+    /// Config-free half of `initialPrompt(vocabulary:)`, so the merge and the truncation
+    /// can be tested without depending on the config file of the machine running the tests.
+    static func mergedPrompt(global: String, mode: String) -> String {
+        let parts = [global, mode]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return "" }
+        let terms = parts.joined(separator: ", ")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var kept: [String] = []
+        var length = 0
+        for term in terms {
+            let addition = kept.isEmpty ? term.count : term.count + 2
+            guard length + addition <= promptCharacterLimit else {
+                VoxlyLog.log("Vocabulary prompt exceeds \(promptCharacterLimit) characters — dropping \(terms.count - kept.count) term(s) from '\(term)' onward (Whisper ignores anything past ~224 tokens)")
+                break
+            }
+            kept.append(term)
+            length += addition
+        }
+        return kept.joined(separator: ", ")
     }
 
     private func cleanText(_ text: String) -> String {
@@ -1258,7 +1296,7 @@ struct LocalTranscriber: Sendable {
         return cleaned
     }
 
-    private func transcribeCLI(audio: URL, language: DictationLanguage) throws -> String {
+    private func transcribeCLI(audio: URL, language: DictationLanguage, prompt: String) throws -> String {
         let locator = ModelLocator.shared
         guard FileManager.default.isExecutableFile(atPath: locator.whisper.path) else { throw VoxlyError.executableMissing("whisper.cpp") }
         guard FileManager.default.fileExists(atPath: locator.whisperModel.path) else { throw VoxlyError.executableMissing("Whisper model") }
@@ -1270,7 +1308,6 @@ struct LocalTranscriber: Sendable {
         arguments += ["-bs", "\(config.whisperBeamSize)", "-bo", "\(config.whisperBestOf)"]
         arguments += ["-nth", "\(config.whisperNoSpeechThreshold)"]
         if config.whisperSuppressNonSpeech { arguments += ["-sns"] }
-        let prompt = config.whisperPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         if !prompt.isEmpty { arguments += ["--prompt", prompt] }
         let output = try LocalProcess.run(executable: locator.whisper, arguments: arguments)
         let text = output.trimmingCharacters(in: .whitespacesAndNewlines)

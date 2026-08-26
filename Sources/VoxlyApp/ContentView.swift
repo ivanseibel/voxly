@@ -86,6 +86,10 @@ struct ModeEditor: View {
             Field(label: "Name") { TextField("Name", text: $mode.name) }
             HStack(spacing: 14) { ShortcutRecorder(keyCode: $mode.shortcutKeyCode, store: store, modeID: mode.id).id(mode.id); Field(label: "Language") { Picker("Language", selection: $mode.language) { ForEach(DictationLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) } }
             Field(label: "Local instructions") { TextEditor(text: $mode.instructions).font(.body).scrollContentBackground(.hidden).frame(minHeight: 145).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
+            VStack(alignment: .leading, spacing: 5) {
+                Field(label: "Vocabulary") { TextEditor(text: $mode.vocabulary).font(.body).scrollContentBackground(.hidden).frame(minHeight: 72).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
+                Text("Names, products and jargon this mode should get right, comma separated. Stays on this Mac.").font(.caption).foregroundStyle(VoxlyColor.muted)
+            }
             HStack { VStack(alignment: .leading, spacing: 2) { Text("Output").font(.caption.weight(.medium)).foregroundStyle(VoxlyColor.muted); Text("Insert automatically; clipboard as fallback").font(.subheadline) }; Spacer(); Toggle("", isOn: $mode.automaticInsert).labelsHidden().toggleStyle(.switch) }
                 .padding(12).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line))
             HStack { if !error.isEmpty { Text(error).font(.caption).foregroundStyle(error == "Saved" ? .green : .orange) }; Spacer(); Button("Save mode", action: save).buttonStyle(.borderedProminent).tint(.green) }

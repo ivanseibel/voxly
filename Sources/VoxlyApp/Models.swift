@@ -31,6 +31,11 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
     var shortcutKeyCode = 54  // Right Command
     var language: DictationLanguage
     var instructions: String
+    /// Proper nouns, product names and jargon biasing transcription for this mode
+    /// (Whisper initial prompt). Kept per mode because a technical-notes dictation
+    /// and an email dictation rarely need the same words. Combined with the global
+    /// `whisperPrompt` config key at transcription time.
+    var vocabulary = ""
     var modelProfile = "Balanced (local)"
     var automaticInsert = true
     var usesRefinement: Bool { name != "Faithful transcription" && !instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -75,7 +80,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
 
     // MARK: - Codable (backward compat with old shortcut-only data)
     enum CodingKeys: String, CodingKey {
-        case id, name, shortcutKeyCode, language, instructions, modelProfile, automaticInsert
+        case id, name, shortcutKeyCode, language, instructions, vocabulary, modelProfile, automaticInsert
     }
 
     init(from decoder: Decoder) throws {
@@ -85,6 +90,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         shortcutKeyCode = try c.decodeIfPresent(Int.self, forKey: .shortcutKeyCode) ?? 54
         language = try c.decodeIfPresent(DictationLanguage.self, forKey: .language) ?? .automatic
         instructions = try c.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+        vocabulary = try c.decodeIfPresent(String.self, forKey: .vocabulary) ?? ""
         modelProfile = try c.decodeIfPresent(String.self, forKey: .modelProfile) ?? "Balanced (local)"
         automaticInsert = try c.decodeIfPresent(Bool.self, forKey: .automaticInsert) ?? true
     }
@@ -96,17 +102,20 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         try c.encode(shortcutKeyCode, forKey: .shortcutKeyCode)
         try c.encode(language, forKey: .language)
         try c.encode(instructions, forKey: .instructions)
+        try c.encode(vocabulary, forKey: .vocabulary)
         try c.encode(modelProfile, forKey: .modelProfile)
         try c.encode(automaticInsert, forKey: .automaticInsert)
     }
 
     init(id: UUID = UUID(), name: String, shortcutKeyCode: Int = 54, language: DictationLanguage,
-         instructions: String, modelProfile: String = "Balanced (local)", automaticInsert: Bool = true) {
+         instructions: String, vocabulary: String = "", modelProfile: String = "Balanced (local)",
+         automaticInsert: Bool = true) {
         self.id = id
         self.name = name
         self.shortcutKeyCode = shortcutKeyCode
         self.language = language
         self.instructions = instructions
+        self.vocabulary = vocabulary
         self.modelProfile = modelProfile
         self.automaticInsert = automaticInsert
     }
