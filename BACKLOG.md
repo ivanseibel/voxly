@@ -10,14 +10,6 @@ Section order is not a strict gate: documentation-only entries and small items c
 
 Small, independent, and each one either loses user data or ships a default that cannot work.
 
-### The packaged app is a debug build
-
-`scripts/package-app.sh` runs `swift build --package-path "$root"` with no configuration flag and then copies `.build/debug/Voxly` into the bundle. Everything installed to `/Applications`, by every user, is unoptimized Swift with bounds checks and no inlining.
-
-This matters most in exactly the code that can least afford it: the per-sample loops in `processInput`, the level-meter reduction in the capture tap, and WAV conversion.
-
-Intended fix: `swift build -c release --package-path "$root"` and copy from `.build/release/Voxly`. Highest ratio of effect to effort in the repository, and it changes the baseline for every latency measurement taken afterwards, so it goes first.
-
 ### Remove Escape-to-cancel instead of fixing it
 
 `receive()` in `DictationCoordinator` treats any `keyDown` matching `AppConfig.current.cancelKeyCode` (53 = Escape) as a cancel request and calls `cancel()`. That path is broken: `cancel()` only bumps `latestDictationID`, so a dictation already transcribing or refining still reaches `inserter.insert(final + " ", into:)` and pastes its text seconds after the user was told "Dictation canceled". It also drops the WAV returned by `stopAndRemove()` without deleting it, because setting `backend = nil` makes the following `discard()` a no-op.

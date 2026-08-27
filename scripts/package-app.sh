@@ -4,11 +4,11 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 app="$root/build/Voxly.app"
 
-swift build --package-path "$root"
+swift build -c release --package-path "$root"
 swift "$root/scripts/generate-menubar-icon.swift" "$root/Resources/VoxlyMenuBar.png"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$root/.build/debug/Voxly" "$app/Contents/MacOS/Voxly"
+cp "$root/.build/release/Voxly" "$app/Contents/MacOS/Voxly"
 cp "$root/Info.plist" "$app/Contents/Info.plist"
 cp "$root/Resources/Voxly.icns" "$app/Contents/Resources/Voxly.icns"
 cp "$root/Resources/VoxlyMenuBar.png" "$app/Contents/Resources/VoxlyMenuBar.png"
