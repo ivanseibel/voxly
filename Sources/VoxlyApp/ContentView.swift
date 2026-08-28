@@ -3,14 +3,14 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var store: VoxlyStore
     let coordinator: DictationCoordinator
-    @State private var section: Section = .modes
-    enum Section: String, CaseIterable, Identifiable { case modes = "Modes", history = "History", diagnosis = "Diagnostics"; var id: String { rawValue } }
+    @State private var section: Pane = .modes
+    enum Pane: String, CaseIterable, Identifiable { case modes = "Modes", history = "History", diagnosis = "Diagnostics"; var id: String { rawValue } }
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 BrandMark()
                 Spacer().frame(height: 28)
-                ForEach(Section.allCases) { item in
+                ForEach(Pane.allCases) { item in
                     Button { section = item } label: { Label(item.rawValue, systemImage: icon(item)).frame(maxWidth: .infinity, alignment: .leading) }
                         .buttonStyle(NavButton(selected: section == item))
                 }
@@ -24,7 +24,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 820, minHeight: 560).preferredColorScheme(.dark)
     }
-    func icon(_ item: Section) -> String { switch item { case .modes: "slider.horizontal.3"; case .history: "clock.arrow.circlepath"; case .diagnosis: "stethoscope" } }
+    func icon(_ item: Pane) -> String { switch item { case .modes: "slider.horizontal.3"; case .history: "clock.arrow.circlepath"; case .diagnosis: "stethoscope" } }
 }
 
 enum VoxlyColor { static let base = Color(red: 0.055, green: 0.06, blue: 0.065); static let canvas = Color(red: 0.075, green: 0.08, blue: 0.085); static let raised = Color(red: 0.10, green: 0.105, blue: 0.11); static let inset = Color.black.opacity(0.24); static let line = Color.white.opacity(0.10); static let softLine = Color.white.opacity(0.06); static let ink = Color.white.opacity(0.92); static let muted = Color.white.opacity(0.48) }
