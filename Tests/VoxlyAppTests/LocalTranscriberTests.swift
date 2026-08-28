@@ -2,6 +2,37 @@ import XCTest
 @testable import VoxlyApp
 
 final class LocalTranscriberTests: XCTestCase {
+    func testCapitalizesTheFirstLetterOfTranscription() {
+        XCTAssertEqual(LocalTranscriber.cleanText("marcador inicial alpha"), "Marcador inicial alpha")
+    }
+
+    func testCapitalizesAfterLeadingPunctuationWithoutChangingIt() {
+        XCTAssertEqual(LocalTranscriber.cleanText("\"olá, equipe\""), "\"Olá, equipe\"")
+    }
+
+    func testKeepsAnAlreadyCapitalizedTranscriptionUnchanged() {
+        XCTAssertEqual(LocalTranscriber.cleanText("Voxly está pronto."), "Voxly está pronto.")
+    }
+
+    func testCollapsesWhitespaceBeforeCapitalizing() {
+        XCTAssertEqual(LocalTranscriber.cleanText("  marcador\n  inicial   alpha "), "Marcador inicial alpha")
+    }
+
+    /// Capitalization runs after the blank-audio check, so a marker still becomes empty
+    /// instead of being turned into text that no longer matches the marker set.
+    func testBlankAudioMarkersStayEmpty() {
+        for marker in ["[blank_audio]", "[BLANK_AUDIO]", "[silence]", "(silence)", "[no speech]", "  [blank_audio]  "] {
+            XCTAssertEqual(LocalTranscriber.cleanText(marker), "", "marker: \(marker)")
+        }
+    }
+
+    func testTextWithoutLettersGainsNoContent() {
+        XCTAssertEqual(LocalTranscriber.cleanText(""), "")
+        XCTAssertEqual(LocalTranscriber.cleanText("   \n\t "), "")
+        XCTAssertEqual(LocalTranscriber.cleanText("..."), "...")
+        XCTAssertEqual(LocalTranscriber.cleanText("42 42"), "42 42")
+    }
+
     func testEmptyGlossariesProduceNoPrompt() {
         XCTAssertEqual(LocalTranscriber.mergedPrompt(global: "", mode: "   \n "), "")
     }

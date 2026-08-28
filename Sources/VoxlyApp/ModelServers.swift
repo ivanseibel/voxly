@@ -126,21 +126,39 @@ enum LocalModelHTTP {
         return data
     }
 
-    static func chat(system: String, prompt: String) async throws -> String {
-        let payload = ChatRequest(messages: [
+    /// `budget` is the shared refinement budget, so `max_tokens` here and `-n` in the CLI
+    /// fallback can never disagree.
+    static func chatPayload(system: String, prompt: String, budget: RefinementBudget) -> ChatRequest {
+        ChatRequest(messages: [
             Message(role: "system", content: system),
             Message(role: "user", content: prompt)
-        ], max_tokens: AppConfig.current.refineMaxTokens, temperature: AppConfig.current.refineTemperature, stream: false)
+        ], max_tokens: budget.outputTokens, temperature: AppConfig.current.refineTemperature, stream: false)
+    }
+
+    static func chat(system: String, prompt: String, budget: RefinementBudget) async throws -> ChatCompletion {
+        let payload = chatPayload(system: system, prompt: prompt, budget: budget)
         var request = URLRequest(url: llamaURL); request.httpMethod = "POST"; request.httpBody = try JSONEncoder().encode(payload); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw VoxlyError.processFailed("Llama server unavailable") }
-        let chatResponse = try JSONDecoder().decode(ChatResponse.self, from: data)
-        return chatResponse.choices.first?.message.content ?? ""
+        return try completion(from: data)
+    }
+
+    static func completion(from data: Data) throws -> ChatCompletion {
+        let choice = try JSONDecoder().decode(ChatResponse.self, from: data).choices.first
+        return ChatCompletion(text: choice?.message.content ?? "", finishReason: choice?.finish_reason)
     }
 
     struct WhisperResponse: Decodable { let text: String }
     struct Message: Codable { let role: String; let content: String }
     struct ChatRequest: Encodable { let messages: [Message]; let max_tokens: Int; let temperature: Double; let stream: Bool }
-    struct ChatChoice: Decodable { let message: Message }
+    struct ChatChoice: Decodable { let message: Message; let finish_reason: String? }
     struct ChatResponse: Decodable { let choices: [ChatChoice] }
+
+    /// `finishReason` is what separates a rewrite that ended on its own from one the server cut
+    /// off at `max_tokens`; discarding it made a truncated result look complete.
+    struct ChatCompletion: Sendable {
+        let text: String
+        let finishReason: String?
+        var hitTokenLimit: Bool { finishReason == "length" }
+    }
 }

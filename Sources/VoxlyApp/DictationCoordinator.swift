@@ -109,7 +109,10 @@ final class DictationCoordinator: NSObject {
         do {
             let raw = try await Task.detached { [transcriber] in try await transcriber.transcribe(audio: audio, language: mode.language, vocabulary: mode.vocabulary) }.value
             let transcriptionSeconds = Date().timeIntervalSince(startedAt)
-            let final: String
+            var final: String
+            /// Set only when a refinement mode fell back to the raw transcription; carried all
+            /// the way to the final message so the reason survives insertion.
+            var refinementNote: String?
             if !mode.usesRefinement {
                 VoxlyLog.log("Mode '\(mode.name)' has no refinement (usesRefinement=false)")
                 final = raw
@@ -123,21 +126,29 @@ final class DictationCoordinator: NSObject {
                 }
                 do { final = try await Task.detached { [refiner] in try await refiner.refine(raw, mode: mode) }.value }
                 catch {
-                    VoxlyLog.log("Refinement failed completely: \(error) — using raw text")
+                    VoxlyLog.log("Refinement fell back to the raw text: \(error.localizedDescription)")
                     final = raw
-                    if ownsSharedUI(dictationID) { store.lastMessage = "Refinement failed; raw text kept" }
+                    let note = Self.refinementFallbackNote(for: error)
+                    refinementNote = note
+                    if ownsSharedUI(dictationID) { store.lastMessage = note }
                 }
             }
+            // The transcription is already normalized by `LocalTranscriber.cleanText`; a rewrite
+            // comes straight from the refinement model, which may lower-case the first word again.
+            final = TextCase.capitalizingFirstLetter(final)
             let result = target.map { inserter.insert(final + " ", into: $0) } ?? .failed
             store.addHistory(raw: raw, final: final, result: result, mode: mode)
             guard ownsSharedUI(dictationID) else {
                 VoxlyLog.log("Superseded dictation finished (\(result)) — inserted into its own target, capsule left to the newer dictation")
                 return
             }
-            store.capsule = result == .inserted ? .inserted : .copied
-            let elapsed = String(format: "%.1f", Date().timeIntervalSince(startedAt))
-            let transcribed = String(format: "%.1f", transcriptionSeconds)
-            store.lastMessage = result == .inserted ? "Text inserted · processed \(elapsed)s (Whisper \(transcribed)s)" : "Text in clipboard · processed \(elapsed)s"
+            store.capsule = refinementNote.map { CapsuleState.rawTextKept(reason: $0, insertion: result) }
+                ?? (result == .inserted ? .inserted : .copied)
+            store.lastMessage = Self.insertionMessage(
+                result: result,
+                elapsedSeconds: Date().timeIntervalSince(startedAt),
+                transcriptionSeconds: transcriptionSeconds,
+                refinementNote: refinementNote)
             onCapsule?(true)
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConfig.current.capsuleResetDelaySeconds) { [weak self] in
                 guard let self, self.ownsSharedUI(dictationID) else { return }
@@ -150,6 +161,31 @@ final class DictationCoordinator: NSObject {
             else { VoxlyLog.log("Superseded dictation failed: \(error.localizedDescription)") }
         }
     }
+    /// Why a refinement mode ended up inserting the raw transcription. The three causes need
+    /// different answers from the user — shorten the dictation, raise `llamaContextSize`, or
+    /// check whether the refinement model is running — so they read differently.
+    nonisolated static func refinementFallbackNote(for error: Error) -> String {
+        switch error as? VoxlyError {
+        case .refinementInputTooLong(let estimated, let context):
+            "Not refined — text needs ~\(estimated) tokens, context holds \(context); raw text kept"
+        case .refinementIncomplete:
+            "Not refined — refinement hit its token budget; raw text kept"
+        default:
+            "Refinement failed; raw text kept"
+        }
+    }
+
+    /// The status message shown after insertion. `refinementNote` is prefixed rather than
+    /// replaced, so the reason a mode did not refine survives alongside the timings instead of
+    /// being overwritten by "Text inserted".
+    nonisolated static func insertionMessage(result: InsertionResult, elapsedSeconds: Double, transcriptionSeconds: Double, refinementNote: String?) -> String {
+        let elapsed = String(format: "%.1f", elapsedSeconds)
+        let transcribed = String(format: "%.1f", transcriptionSeconds)
+        let outcome = result == .inserted ? "Text inserted · processed \(elapsed)s (Whisper \(transcribed)s)" : "Text in clipboard · processed \(elapsed)s"
+        guard let refinementNote else { return outcome }
+        return "\(refinementNote) · \(outcome)"
+    }
+
     private static func preserveAudioForDebug(_ audio: URL) -> URL? {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Voxly/FailedAudio", isDirectory: true)

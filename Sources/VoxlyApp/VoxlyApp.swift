@@ -131,7 +131,7 @@ final class CapsulePanelController {
 struct CapsuleView: View {
     let state: CapsuleState
     let level: Float
-    var tint: Color { switch state { case .recording: .green; case .transcribing, .refining: .orange; case .inserted: .green; case .copied: .blue; case .error: .red; case .ready: .secondary } }
+    var tint: Color { switch state { case .recording: .green; case .transcribing, .refining: .orange; case .inserted: .green; case .copied: .blue; case .rawTextKept: .yellow; case .error: .red; case .ready: .secondary } }
     var isProcessing: Bool { if case .transcribing = state { return true }; if case .refining = state { return true }; return false }
     var detail: String {
         switch state {
@@ -140,6 +140,7 @@ struct CapsuleView: View {
         case .refining: "Applying mode locally"
         case .inserted: "Text inserted into field"
         case .copied: "Result in clipboard"
+        case .rawTextKept(let reason, let insertion): insertion == .inserted ? reason : "In clipboard · \(reason)"
         case .error: "Check Diagnostics"
         case .ready: "Ready to dictate"
         }

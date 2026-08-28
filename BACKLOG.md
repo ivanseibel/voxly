@@ -141,20 +141,6 @@ Intended fix: track the pressed state of the specific key code rather than readi
 
 Bounded changes with visible effect, including the three items that make Portuguese work as well as English — a stated quality requirement, not a localization one.
 
-### Refinement is silently truncated at 256 tokens
-
-`ModelServerManager.chat` sends `max_tokens: AppConfig.current.refineMaxTokens`, which defaults to 256, and `ChatResponse` decodes only `choices[].message`. The `finish_reason` the server returns is discarded, so a generation that stopped because it hit the limit is indistinguishable from one that finished.
-
-Observable effect: a dictation longer than roughly two paragraphs, run through any refinement mode, is cut mid-sentence and inserted as if complete. The capsule reports success and history stores the truncated text as the final result. The user has no signal that anything was lost, and the raw text — which was complete — is only visible if they go looking for it, and today history has no UI to show it.
-
-`llamaContextSize` (2048) has the same failure shape from the prompt side: a long transcription plus the mode's instructions can exceed the window, and the server truncates the input rather than refusing it.
-
-Intended fix:
-
-- Decode `finish_reason` on `ChatChoice` and throw when it is `"length"`. `LocalRefiner.refine`'s caller already catches refinement failures and keeps the raw text with a "Refinement failed; raw text kept" message, so a complete unrefined transcription is delivered instead of a truncated refined one. That machinery exists and is the right behaviour here.
-- Scale `max_tokens` from the input length instead of using a fixed 256 — refinement rewrites text, so the output length tracks the input. Roughly `max(refineMaxTokens, estimatedInputTokens * 1.5)` would cover the modes that expand text, with `refineMaxTokens` becoming a floor rather than a ceiling.
-- Consider raising `llamaContextSize`, or rejecting refinement up front when the estimated prompt does not fit, so the prompt side fails loudly too.
-
 ### Whether a mode refines is decided by comparing its name to a string literal
 
 `DictationMode.usesRefinement` is `name != "Faithful transcription" && !instructions.trimmed.isEmpty`. A mode's behaviour therefore depends on its title, and the title is a free-text field the user is invited to edit.

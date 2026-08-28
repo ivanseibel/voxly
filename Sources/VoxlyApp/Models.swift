@@ -11,6 +11,10 @@ enum DictationLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
 
 enum CapsuleState: Equatable {
     case ready, recording, transcribing, refining(String), inserted, copied, error(String)
+    /// The mode did not refine the dictation — a partial or absent rewrite must never be
+    /// reported as a refined result. Carries the reason and the insertion result, so a fallback
+    /// that only reached the clipboard still tells the user to paste it themselves.
+    case rawTextKept(reason: String, insertion: InsertionResult)
 
     var title: String {
         switch self {
@@ -20,6 +24,7 @@ enum CapsuleState: Equatable {
         case .refining(let name): "Refining: \(name)"
         case .inserted: "Inserted"
         case .copied: "Copied — paste manually"
+        case .rawTextKept(_, let insertion): insertion == .inserted ? "Raw text inserted" : "Raw text copied — paste manually"
         case .error(let message): message
         }
     }

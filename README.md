@@ -145,8 +145,8 @@ Common options include:
 | `minTapSeconds` | `0.3` | Minimum hold time; shorter taps are discarded. |
 | `whisperPort` / `llamaPort` | `18080` / `18081` | Local server ports (loopback only). |
 | `whisperThreads` / `llamaThreads` | `8` | CPU threads per local model. |
-| `llamaContextSize` | `2048` | Llama context window (tokens). |
-| `refineMaxTokens` | `256` | Max tokens generated during refinement. |
+| `llamaContextSize` | `2048` | Llama context window (tokens). Prompts plus the refined output must fit inside it; a dictation too long for it is inserted as raw text with the reason shown. |
+| `refineMaxTokens` | `256` | Floor for the refinement output budget, not a ceiling. Voxly scales the budget with the length of the dictation and clamps it to the room left in `llamaContextSize`. |
 | `whisperModelFile` | `ggml-small.bin` | Whisper model file to load; swap for a larger one to trade latency for accuracy. |
 | `whisperPrompt` | `""` | Vocabulary every mode inherits; combined with each mode's own Vocabulary field. |
 | `whisperBeamSize` / `whisperBestOf` | `5` / `5` | Beam search width and candidate count for transcription. |
