@@ -32,12 +32,126 @@ final class LocalRefinerTests: XCTestCase {
     func testRejectsPortugueseToEnglishTranslation() {
         let result = "Create a commit for these changes and push the code to GitHub. Do not forget to commit in English."
 
-        XCTAssertTrue(LocalRefiner.changesLanguage(result, from: .portuguese))
+        XCTAssertTrue(LocalRefiner.hasUnexpectedLanguage(result, expected: .portuguese))
     }
 
     func testAllowsPortugueseRewrite() {
         let result = "Crie o commit dessas mudanças em inglês e envie o código ao GitHub."
 
-        XCTAssertFalse(LocalRefiner.changesLanguage(result, from: .portuguese))
+        XCTAssertFalse(LocalRefiner.hasUnexpectedLanguage(result, expected: .portuguese))
+    }
+
+    func testTranslationModeExpectsEnglishOutputFromPortugueseSpeech() throws {
+        let mode = DictationMode(
+            name: "To English", language: .english,
+            instructions: "Translate to English and rewrite concisely.", outputLanguage: .english)
+
+        let plan = try LocalRefiner.plan(
+            for: "O Luiz chegou a testar o fluxo no ambiente de desenvolvimento?",
+            mode: mode, contextTokens: 2048, floor: 256)
+
+        XCTAssertEqual(plan.sourceLanguage, .portuguese)
+        XCTAssertEqual(plan.expectedOutputLanguage, .english)
+        XCTAssertTrue(plan.systemPrompt.contains("Translate the source text to English"))
+        XCTAssertFalse(plan.systemPrompt.contains("Do not translate"))
+        XCTAssertFalse(LocalRefiner.hasUnexpectedLanguage(
+            "Did Luiz test the flow in the development environment?", expected: plan.expectedOutputLanguage))
+        XCTAssertTrue(LocalRefiner.hasUnexpectedLanguage(
+            "O Luiz testou o fluxo no ambiente de desenvolvimento?", expected: plan.expectedOutputLanguage))
+    }
+
+    func testPreserveModeKeepsDetectedSourceLanguage() throws {
+        let mode = DictationMode(
+            name: "Clean text", language: .automatic,
+            instructions: "Rewrite concisely.")
+
+        let plan = try LocalRefiner.plan(
+            for: "O Luiz chegou a testar o fluxo no ambiente de desenvolvimento?",
+            mode: mode, contextTokens: 2048, floor: 256)
+
+        XCTAssertEqual(plan.sourceLanguage, .portuguese)
+        XCTAssertEqual(plan.expectedOutputLanguage, .portuguese)
+        XCTAssertTrue(plan.systemPrompt.contains("Do not translate"))
+    }
+
+    func testLongConciseRewriteGetsAConcreteWordLimit() throws {
+        let source = Array(repeating: "palavra", count: 100).joined(separator: " ")
+        let mode = DictationMode(
+            name: "Clean text", language: .automatic,
+            instructions: "Rewrite more concisely and remove repetition.")
+
+        let plan = try LocalRefiner.plan(for: source, mode: mode, contextTokens: 2048, floor: 256)
+
+        XCTAssertEqual(LocalRefiner.conciseWordLimit(for: source, instructions: mode.instructions), 55)
+        XCTAssertTrue(plan.userPrompt.contains("no more than 55 words"))
+        XCTAssertTrue(plan.userPrompt.contains("Remove filler, false starts, repeated ideas"))
+    }
+
+    func testShortConciseRewriteIsNotForcedIntoAWordLimit() throws {
+        let source = "Could you send me the updated document after lunch?"
+        let mode = DictationMode(
+            name: "Clean text", language: .automatic,
+            instructions: "Rewrite more concisely.")
+
+        let plan = try LocalRefiner.plan(for: source, mode: mode, contextTokens: 2048, floor: 256)
+
+        XCTAssertNil(LocalRefiner.conciseWordLimit(for: source, instructions: mode.instructions))
+        XCTAssertFalse(plan.userPrompt.contains("HARD LENGTH LIMIT"))
+    }
+
+    func testNonConciseModeDoesNotGetAWordLimit() throws {
+        let source = Array(repeating: "technical detail", count: 50).joined(separator: " ")
+        let mode = DictationMode(
+            name: "Code/technical notes", language: .automatic,
+            instructions: "Organize as a technical note and preserve every identifier.")
+
+        let plan = try LocalRefiner.plan(for: source, mode: mode, contextTokens: 2048, floor: 256)
+
+        XCTAssertNil(LocalRefiner.conciseWordLimit(for: source, instructions: mode.instructions))
+        XCTAssertFalse(plan.userPrompt.contains("HARD LENGTH LIMIT"))
+    }
+
+    func testDedicatedTranslationPlanHasNoCopyEditingLanguageConflict() throws {
+        let source = "Está faltando uma estratégia de SEO mais profunda e abrangente."
+
+        let plan = try LocalRefiner.translationPlan(
+            for: source, vocabulary: "Voxly, Whisper CLI, Llama, Services.swift",
+            contextTokens: 2048, floor: 256)
+
+        XCTAssertEqual(plan.sourceLanguage, .portuguese)
+        XCTAssertEqual(plan.expectedOutputLanguage, .english)
+        XCTAssertTrue(plan.systemPrompt.contains("Translate the entire source text to natural English"))
+        XCTAssertTrue(plan.systemPrompt.contains("Voxly, Whisper CLI, Llama, Services.swift"))
+        XCTAssertFalse(plan.systemPrompt.contains("Mentions of another language"))
+        XCTAssertFalse(plan.systemPrompt.contains("Do not translate"))
+    }
+
+    func testDedicatedTranslationPlanSupportsPortugueseOutput() throws {
+        let plan = try LocalRefiner.translationPlan(
+            for: "Please send the updated ticket to John.", targetLanguage: .portuguese,
+            contextTokens: 2048, floor: 256)
+
+        XCTAssertEqual(plan.sourceLanguage, .english)
+        XCTAssertEqual(plan.expectedOutputLanguage, .portuguese)
+        XCTAssertTrue(plan.systemPrompt.contains("natural Portuguese"))
+        XCTAssertTrue(plan.userPrompt.contains("to Portuguese"))
+        XCTAssertFalse(plan.systemPrompt.contains("natural English"))
+    }
+
+    func testExistingModeDefaultsToPreservingInputLanguage() throws {
+        let data = Data(#"{"name":"Existing mode","language":"Automatic","instructions":"Rewrite concisely."}"#.utf8)
+
+        let mode = try JSONDecoder().decode(DictationMode.self, from: data)
+
+        XCTAssertEqual(mode.outputLanguage, .sameAsInput)
+    }
+
+    func testExistingTranslationModeMigratesItsEnglishTarget() throws {
+        let data = Data(#"{"name":"To English","language":"English","instructions":"Translate to English and rewrite more concisely using casual language."}"#.utf8)
+
+        let mode = try JSONDecoder().decode(DictationMode.self, from: data)
+
+        XCTAssertEqual(mode.outputLanguage, .english)
+        XCTAssertEqual(mode.language, .automatic)
     }
 }

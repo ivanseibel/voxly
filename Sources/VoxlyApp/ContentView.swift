@@ -22,15 +22,15 @@ struct ContentView: View {
             VStack(spacing: 0) { Header(store: store); Divider().overlay(VoxlyColor.line); Group { switch section { case .modes: ModesView(store: store); case .history: HistoryView(store: store); case .diagnosis: DiagnosisView(store: store, coordinator: coordinator) } }.frame(maxWidth: .infinity, maxHeight: .infinity) }
                 .background(VoxlyColor.base)
         }
-        .frame(minWidth: 820, minHeight: 560).preferredColorScheme(.dark)
+        .frame(minWidth: 820, minHeight: 560)
     }
     func icon(_ item: Pane) -> String { switch item { case .modes: "slider.horizontal.3"; case .history: "clock.arrow.circlepath"; case .diagnosis: "stethoscope" } }
 }
 
-enum VoxlyColor { static let base = Color(red: 0.055, green: 0.06, blue: 0.065); static let canvas = Color(red: 0.075, green: 0.08, blue: 0.085); static let raised = Color(red: 0.10, green: 0.105, blue: 0.11); static let inset = Color.black.opacity(0.24); static let line = Color.white.opacity(0.10); static let softLine = Color.white.opacity(0.06); static let ink = Color.white.opacity(0.92); static let muted = Color.white.opacity(0.48) }
+enum VoxlyColor { static let base = Color(nsColor: .windowBackgroundColor); static let canvas = Material.ultraThinMaterial; static let raised = Color(nsColor: .tertiarySystemFill); static let inset = Color(nsColor: .secondarySystemFill); static let line = Color(nsColor: .separatorColor); static let softLine = Color(nsColor: .separatorColor); static let ink = Color.primary; static let muted = Color.secondary }
 
 struct BrandMark: View { var body: some View { HStack(spacing: 9) { Image(systemName: "waveform").foregroundStyle(.green).font(.system(size: 18, weight: .medium)); Text("Voxly").font(.system(size: 19, weight: .semibold, design: .rounded)) }.foregroundStyle(VoxlyColor.ink) } }
-struct NavButton: ButtonStyle { let selected: Bool; func makeBody(configuration: Configuration) -> some View { configuration.label.padding(.horizontal, 10).padding(.vertical, 8).contentShape(RoundedRectangle(cornerRadius: 7)).foregroundStyle(selected ? Color.white : VoxlyColor.muted).background(selected ? Color.white.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 7)).opacity(configuration.isPressed ? 0.7 : 1) } }
+struct NavButton: ButtonStyle { let selected: Bool; func makeBody(configuration: Configuration) -> some View { configuration.label.padding(.horizontal, 10).padding(.vertical, 8).contentShape(RoundedRectangle(cornerRadius: 7)).foregroundStyle(selected ? Color(nsColor: .alternateSelectedControlTextColor) : VoxlyColor.muted).background(selected ? Color(nsColor: .selectedContentBackgroundColor) : .clear, in: RoundedRectangle(cornerRadius: 7)).opacity(configuration.isPressed ? 0.7 : 1) } }
 struct StatusStrip: View { let status: PermissionStatus; var body: some View { VStack(alignment: .leading, spacing: 5) { HStack(spacing: 6) { Circle().fill(status.allReady ? .green : .orange).frame(width: 7, height: 7); Text(status.allReady ? "Ready" : "Attention needed").font(.caption.weight(.medium)) }; Text(status.allReady ? "All local on this Mac" : "Open Diagnostics").font(.caption2).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line)) } }
 struct Header: View { @ObservedObject var store: VoxlyStore; var body: some View { HStack { VStack(alignment: .leading, spacing: 3) { Text("Voxly").font(.headline); Text(store.lastMessage).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer() }.padding(.horizontal, 28).padding(.vertical, 18) } }
 
@@ -47,7 +47,7 @@ struct ModesView: View {
                 ForEach(store.modes) { mode in
                     HStack(spacing: 0) {
                         Button { selectedID = mode.id; draft = mode; error = "" } label: {
-                            HStack(spacing: 10) { VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text(mode.language.rawValue).font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 10) { VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text(mode.outputLanguage == .sameAsInput ? mode.language.rawValue : "\(mode.language.rawValue) · \(mode.outputLanguage.rawValue) output").font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(NavButton(selected: mode.id == selectedID))
                         Button { deleteMode(mode) } label: { Image(systemName: "trash").foregroundStyle(VoxlyColor.muted).frame(width: 24, height: 24).contentShape(.rect) }.buttonStyle(.plain).accessibilityLabel("Delete mode \(mode.name)").padding(.trailing, 10).disabled(store.modes.count <= 1).opacity(store.modes.count <= 1 ? 0.3 : 1)
                     }
@@ -84,15 +84,16 @@ struct ModeEditor: View {
         ScrollView { VStack(alignment: .leading, spacing: 22) {
             Text("Edit mode").font(.title2.weight(.semibold))
             Field(label: "Name") { TextField("Name", text: $mode.name) }
-            HStack(spacing: 14) { ShortcutRecorder(keyCode: $mode.shortcutKeyCode, store: store, modeID: mode.id).id(mode.id); Field(label: "Language") { Picker("Language", selection: $mode.language) { ForEach(DictationLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) } }
+            HStack(spacing: 14) { ShortcutRecorder(keyCode: $mode.shortcutKeyCode, store: store, modeID: mode.id).id(mode.id); Field(label: "Spoken language") { Picker("Spoken language", selection: $mode.language) { ForEach(DictationLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) } }
+            Field(label: "Output language") { Picker("Output language", selection: $mode.outputLanguage) { ForEach(DictationOutputLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) }
             Field(label: "Local instructions") { TextEditor(text: $mode.instructions).font(.body).scrollContentBackground(.hidden).frame(minHeight: 145).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
             VStack(alignment: .leading, spacing: 5) {
                 Field(label: "Vocabulary") { TextEditor(text: $mode.vocabulary).font(.body).scrollContentBackground(.hidden).frame(minHeight: 72).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
-                Text("Names, products and jargon this mode should get right, comma separated. Stays on this Mac.").font(.caption).foregroundStyle(VoxlyColor.muted)
+                Text("Names, products and jargon to preserve during transcription and translation, comma separated. Stays on this Mac.").font(.caption).foregroundStyle(VoxlyColor.muted)
             }
             HStack { VStack(alignment: .leading, spacing: 2) { Text("Output").font(.caption.weight(.medium)).foregroundStyle(VoxlyColor.muted); Text("Insert automatically; clipboard as fallback").font(.subheadline) }; Spacer(); Toggle("", isOn: $mode.automaticInsert).labelsHidden().toggleStyle(.switch) }
                 .padding(12).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line))
-            HStack { if !error.isEmpty { Text(error).font(.caption).foregroundStyle(error == "Saved" ? .green : .orange) }; Spacer(); Button("Save mode", action: save).buttonStyle(.borderedProminent).tint(.green) }
+            HStack { if !error.isEmpty { Text(error).font(.caption).foregroundStyle(error == "Saved" ? .green : .orange) }; Spacer(); Button("Save mode", action: save).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
         }.padding(30) }
     }
 }

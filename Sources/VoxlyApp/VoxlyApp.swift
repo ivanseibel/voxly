@@ -158,6 +158,7 @@ struct CapsuleView: View {
         .background(.black.opacity(0.90), in: Capsule())
         .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 1))
         .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
     }
 }
 

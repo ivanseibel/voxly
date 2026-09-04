@@ -9,6 +9,13 @@ enum DictationLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
     var whisperCode: String { self == .automatic ? "auto" : (self == .portuguese ? "pt" : "en") }
 }
 
+enum DictationOutputLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
+    case sameAsInput = "Same as input"
+    case portuguese = "Portuguese"
+    case english = "English"
+    var id: String { rawValue }
+}
+
 enum CapsuleState: Equatable {
     case ready, recording, transcribing, refining(String), inserted, copied, error(String)
     /// The mode did not refine the dictation — a partial or absent rewrite must never be
@@ -24,7 +31,7 @@ enum CapsuleState: Equatable {
         case .refining(let name): "Refining: \(name)"
         case .inserted: "Inserted"
         case .copied: "Copied — paste manually"
-        case .rawTextKept(_, let insertion): insertion == .inserted ? "Raw text inserted" : "Raw text copied — paste manually"
+        case .rawTextKept(_, let insertion): insertion == .inserted ? "Unrefined text inserted" : "Unrefined text copied — paste manually"
         case .error(let message): message
         }
     }
@@ -35,11 +42,11 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
     var name: String
     var shortcutKeyCode = 54  // Right Command
     var language: DictationLanguage
+    var outputLanguage: DictationOutputLanguage = .sameAsInput
     var instructions: String
-    /// Proper nouns, product names and jargon biasing transcription for this mode
-    /// (Whisper initial prompt). Kept per mode because a technical-notes dictation
-    /// and an email dictation rarely need the same words. Combined with the global
-    /// `whisperPrompt` config key at transcription time.
+    /// Proper nouns, product names and jargon used by transcription and translation.
+    /// Kept per mode because a technical-notes dictation and an email dictation rarely
+    /// need the same words. Combined with the global `whisperPrompt` config key.
     var vocabulary = ""
     var modelProfile = "Balanced (local)"
     var automaticInsert = true
@@ -54,7 +61,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         DictationMode(name: "Faithful transcription", language: .automatic,
                       instructions: "Preserve speech; adjust only obvious punctuation and capitalization."),
         DictationMode(name: "Clean text", language: .automatic,
-                      instructions: "Remove filler words and organize text without changing meaning or facts."),
+                      instructions: "Rewrite as natural written text. Be concise: remove filler, false starts, repeated ideas, and redundant setup. Combine related ideas into complete, well-punctuated sentences and short paragraphs. Preserve essential facts, requests, reasons, decisions, and commitments."),
         DictationMode(name: "Professional email", language: .automatic,
                       instructions: "Convert into a clear, professional email, preserving content, names, and requests."),
         DictationMode(name: "Code/technical notes", language: .automatic,
@@ -85,7 +92,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
 
     // MARK: - Codable (backward compat with old shortcut-only data)
     enum CodingKeys: String, CodingKey {
-        case id, name, shortcutKeyCode, language, instructions, vocabulary, modelProfile, automaticInsert
+        case id, name, shortcutKeyCode, language, outputLanguage, instructions, vocabulary, modelProfile, automaticInsert
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +102,13 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         shortcutKeyCode = try c.decodeIfPresent(Int.self, forKey: .shortcutKeyCode) ?? 54
         language = try c.decodeIfPresent(DictationLanguage.self, forKey: .language) ?? .automatic
         instructions = try c.decodeIfPresent(String.self, forKey: .instructions) ?? ""
+        if let savedOutputLanguage = try c.decodeIfPresent(DictationOutputLanguage.self, forKey: .outputLanguage) {
+            outputLanguage = savedOutputLanguage
+        } else {
+            outputLanguage = Self.legacyOutputLanguage(for: instructions)
+            if (outputLanguage == .english && language == .english)
+                || (outputLanguage == .portuguese && language == .portuguese) { language = .automatic }
+        }
         vocabulary = try c.decodeIfPresent(String.self, forKey: .vocabulary) ?? ""
         modelProfile = try c.decodeIfPresent(String.self, forKey: .modelProfile) ?? "Balanced (local)"
         automaticInsert = try c.decodeIfPresent(Bool.self, forKey: .automaticInsert) ?? true
@@ -106,6 +120,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         try c.encode(name, forKey: .name)
         try c.encode(shortcutKeyCode, forKey: .shortcutKeyCode)
         try c.encode(language, forKey: .language)
+        try c.encode(outputLanguage, forKey: .outputLanguage)
         try c.encode(instructions, forKey: .instructions)
         try c.encode(vocabulary, forKey: .vocabulary)
         try c.encode(modelProfile, forKey: .modelProfile)
@@ -114,15 +129,25 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
 
     init(id: UUID = UUID(), name: String, shortcutKeyCode: Int = 54, language: DictationLanguage,
          instructions: String, vocabulary: String = "", modelProfile: String = "Balanced (local)",
-         automaticInsert: Bool = true) {
+         automaticInsert: Bool = true, outputLanguage: DictationOutputLanguage = .sameAsInput) {
         self.id = id
         self.name = name
         self.shortcutKeyCode = shortcutKeyCode
         self.language = language
+        self.outputLanguage = outputLanguage
         self.instructions = instructions
         self.vocabulary = vocabulary
         self.modelProfile = modelProfile
         self.automaticInsert = automaticInsert
+    }
+
+    private static func legacyOutputLanguage(for instructions: String) -> DictationOutputLanguage {
+        let normalized = instructions.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        if normalized.contains("translate to english") || normalized.contains("translate into english")
+            || normalized.contains("traduzir para ingles") { return .english }
+        if normalized.contains("translate to portuguese") || normalized.contains("translate into portuguese")
+            || normalized.contains("traduzir para portugues") { return .portuguese }
+        return .sameAsInput
     }
 }
 

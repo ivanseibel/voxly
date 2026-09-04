@@ -18,6 +18,21 @@ final class LocalTranscriberTests: XCTestCase {
         XCTAssertEqual(LocalTranscriber.cleanText("  marcador\n  inicial   alpha "), "Marcador inicial alpha")
     }
 
+    func testRemovesKnownSubtitleCreditAtTheEnd() {
+        XCTAssertEqual(
+            LocalTranscriber.cleanText("Esta é a mensagem final. Legenda por Sônia Ruberti"),
+            "Esta é a mensagem final.")
+        XCTAssertEqual(
+            LocalTranscriber.cleanText("Texto útil. Legendas pela comunidade Amara.org."),
+            "Texto útil.")
+    }
+
+    func testKeepsSubtitleWordsThatAreNotATrailingKnownCredit() {
+        XCTAssertEqual(
+            LocalTranscriber.cleanText("A expressão Legenda por Sônia Ruberti apareceu no meio desta frase."),
+            "A expressão Legenda por Sônia Ruberti apareceu no meio desta frase.")
+    }
+
     /// Capitalization runs after the blank-audio check, so a marker still becomes empty
     /// instead of being turned into text that no longer matches the marker set.
     func testBlankAudioMarkersStayEmpty() {

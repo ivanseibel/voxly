@@ -109,13 +109,29 @@ final class DictationCoordinator: NSObject {
         do {
             let raw = try await Task.detached { [transcriber] in try await transcriber.transcribe(audio: audio, language: mode.language, vocabulary: mode.vocabulary) }.value
             let transcriptionSeconds = Date().timeIntervalSince(startedAt)
+            let prepared: String
+            switch mode.outputLanguage {
+            case .sameAsInput:
+                prepared = raw
+            case .english, .portuguese:
+                let targetLanguage: DictationLanguage = mode.outputLanguage == .english ? .english : .portuguese
+                VoxlyLog.log("Starting dedicated \(targetLanguage.rawValue) translation — mode: '\(mode.name)'")
+                if ownsSharedUI(dictationID) {
+                    store.capsule = .refining(mode.name)
+                    store.lastMessage = "Translating to \(targetLanguage.rawValue) locally"
+                    onCapsule?(true)
+                }
+                prepared = try await Task.detached { [refiner] in
+                    try await refiner.translate(raw, to: targetLanguage, vocabulary: mode.vocabulary)
+                }.value
+            }
             var final: String
-            /// Set only when a refinement mode fell back to the raw transcription; carried all
+            /// Set only when a refinement mode fell back to its unrefined input; carried all
             /// the way to the final message so the reason survives insertion.
             var refinementNote: String?
             if !mode.usesRefinement {
                 VoxlyLog.log("Mode '\(mode.name)' has no refinement (usesRefinement=false)")
-                final = raw
+                final = prepared
             }
             else {
                 VoxlyLog.log("Starting refinement — mode: '\(mode.name)', instructions: \(mode.instructions.prefix(60))...")
@@ -124,10 +140,10 @@ final class DictationCoordinator: NSObject {
                     store.lastMessage = "Refining text locally"
                     onCapsule?(true)
                 }
-                do { final = try await Task.detached { [refiner] in try await refiner.refine(raw, mode: mode) }.value }
+                do { final = try await Task.detached { [refiner] in try await refiner.refine(prepared, mode: mode) }.value }
                 catch {
-                    VoxlyLog.log("Refinement fell back to the raw text: \(error.localizedDescription)")
-                    final = raw
+                    VoxlyLog.log("Refinement fell back to the prepared text: \(error.localizedDescription)")
+                    final = prepared
                     let note = Self.refinementFallbackNote(for: error)
                     refinementNote = note
                     if ownsSharedUI(dictationID) { store.lastMessage = note }
@@ -161,17 +177,19 @@ final class DictationCoordinator: NSObject {
             else { VoxlyLog.log("Superseded dictation failed: \(error.localizedDescription)") }
         }
     }
-    /// Why a refinement mode ended up inserting the raw transcription. The three causes need
+    /// Why a refinement mode ended up inserting its unrefined input. The three causes need
     /// different answers from the user — shorten the dictation, raise `llamaContextSize`, or
     /// check whether the refinement model is running — so they read differently.
     nonisolated static func refinementFallbackNote(for error: Error) -> String {
         switch error as? VoxlyError {
         case .refinementInputTooLong(let estimated, let context):
-            "Not refined — text needs ~\(estimated) tokens, context holds \(context); raw text kept"
+            "Not refined — text needs ~\(estimated) tokens, context holds \(context); unrefined text kept"
         case .refinementIncomplete:
-            "Not refined — refinement hit its token budget; raw text kept"
+            "Not refined — refinement hit its token budget; unrefined text kept"
+        case .refinementWrongLanguage(let expected):
+            "Not refined — expected \(expected.rawValue) output; unrefined text kept"
         default:
-            "Refinement failed; raw text kept"
+            "Refinement failed; unrefined text kept"
         }
     }
 

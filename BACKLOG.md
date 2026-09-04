@@ -1,6 +1,6 @@
 # Voxly — backlog
 
-Updated on 2026-08-27.
+Updated on 2026-09-04.
 
 Entries are grouped into priority sections, and the order inside each section is the intended execution order. Moving an entry between sections is how work gets reprioritised. Dependencies are named in the entries themselves, so an entry can be read on its own.
 
@@ -453,6 +453,20 @@ The status item's image is set once and never changes. §6 of the spec assigns t
 
 Intended fix: tint or swap the icon for recording, processing and error states, and show the active or last-used mode name in the popover.
 
+### The main window is hand-built, too dense vertically, and barely clickable
+
+`ContentView` draws a three-pane window without `NavigationSplitView`, `List`, `Form`, `Table`, or `.toolbar`. Every affordance is hand-rolled, and three separate problems follow from that.
+
+Clicks only register on the text. `NavButton` paints its selection with `.background(selected ? Color.white.opacity(0.10) : .clear, in:)`, and `.background` does not contribute to hit testing while `Color.clear` is not hit-tested at all — so on an unselected row nothing under the padding or the `Spacer()` receives the click, and only the glyph boxes of the `Text` views respond. This affects both the sidebar and every row in `ModesView`. The icon-only trash buttons are worse: `.buttonStyle(.plain)` around a bare `Image` gives a hit area the size of the glyph, roughly 13 × 13 pt, with no `accessibilityLabel`.
+
+The mode editor does not fit its own window. `Field` stacks an uppercased micro-label above each control, `ModeEditor` uses 22 pt block spacing and 30 pt outer padding, and the two `TextEditor`s are pinned at 145 pt and 72 pt. The form measures ≈ 731 pt against a ≈ 537 pt content area, so 27% of it is below the fold and both text areas scroll internally in a window that is not full. `Header` spends another 55 pt repeating the app name directly beneath the real title bar, which already says "Voxly", as does `BrandMark`.
+
+The four surface tokens in `VoxlyColor` are within 11% of each other and of black: `canvas` : `base` is 1.04 : 1, `raised` : `base` is 1.11 : 1, and `base` : `inset` is 1.02 : 1, against 1.30 : 1 for macOS dark mode's own `windowBackgroundColor` → `textBackgroundColor` step. Text contrast is fine — `muted` over `base` measures 5.00 : 1 — but no intended depth is visible, so the window reads as one flat black field with hairlines drawn on it and the text fields do not read as controls.
+
+Intended fix: [DESIGN_MAIN_WINDOW.md](DESIGN_MAIN_WINDOW.md) holds the measurements, a target layout, a density spec, the old-to-new colour table, and a seven-step migration ordered so each step ships on its own. In short: `.contentShape` on the button styles first, then swap `VoxlyColor` for semantic `NSColor` bridges and move `.preferredColorScheme(.dark)` onto the capsule where a fixed dark HUD is the right call, then convert `ModeEditor` to a grouped `Form`, delete `Header` in favour of `.navigationTitle` and `.toolbar`, replace the hand-rolled rows with `List(selection:)` plus a `+`/`−` bottom bar, and collapse to two panes with a resizable `.contentMinSize` window. This entry absorbs the former P5 entry on the hardcoded palette.
+
+Depends on nothing. Overlaps with "The mode editor loses unsaved edits silently" below, which owns the Save button's fate — the report keeps the button so the two land independently.
+
 ### The mode editor loses unsaved edits silently
 
 `ModesView` holds a `draft`. Selecting a different mode overwrites it, and switching sidebar sections discards it, with no indication that anything was lost. There is no ⌘S. `error` also doubles as the success channel — `save()` sets `error = "Saved"` and the view colours it green by comparing the string — so "Saved" stays on screen indefinitely and success is encoded as an error value.
@@ -564,6 +578,65 @@ Whichever is chosen, the `_help` block and the tolerant defaulting behaviour mus
 
 Features that change what the product is, rather than fixing what it claims to be. Worth doing once the sections above are done, or when one of them turns out to matter more than expected.
 
+### Spike: GitHub Copilot CLI as an optional text-processing provider
+
+Voxly is local-first today: Whisper transcribes locally, `LocalRefiner` calls a persistent `llama-server` and falls back to `llama-cli`, and no dictated content is intentionally sent to a remote service. That remains the product default and must not be weakened. The proposed bet is an explicit external provider for developers who already use and pay for an AI coding CLI, starting with GitHub Copilot CLI. It is an alternative for translation and refinement, not a replacement for Whisper, the local Llama path, or offline operation.
+
+Why investigate it: the current `Qwen3.5-2B-Q5_K_M.gguf` is efficient on the target M3 Pro with 18 GB unified memory, and prompt changes made it obey concrete concision limits, but real Portuguese-to-English messages still show semantic and idiomatic errors. Observed failures include `toda hora` → `every hour`, `reuniões pontuais` → `punctual meetings`, and `você pode me procurar` becoming `I'm open to contacting you`, which reverses who initiates the action. A larger local 7B/8B model may improve this but consumes more memory while Whisper Large V3 Turbo is resident. An already-subscribed hosted model may offer better semantic fidelity without local memory pressure, provided latency, privacy, reliability and automation are acceptable.
+
+Current environment at the start of the spike:
+
+- macOS on an Apple M3 Pro, 11 CPU cores and 18 GB unified memory.
+- `gh` 2.86.0 is installed at `/opt/homebrew/bin/gh`; no standalone `copilot` executable is currently on `PATH`.
+- `gh copilot` is available as a preview integration and may download the Copilot CLI into `~/.local/share/gh/copilot` when first run. Its own help states that the integration is subject to change.
+- The documented example supports a direct prompt with `gh copilot -p "..."`; do not assume that this proves stable non-interactive behaviour, clean stdout, model selection, tool isolation or suitable licensing/usage terms. Those are spike questions.
+- The existing pipeline is `LocalTranscriber.transcribe` → optional `LocalRefiner.translateToEnglish` → `LocalRefiner.refine`. English-output modes deliberately separate translation from style refinement because the combined prompt was unreliable.
+- Typical input is 50–350 spoken words. The current local context is 2,048 tokens, temperature is 0, and the app applies a concrete word limit to long concise rewrites.
+
+Non-negotiable product and safety constraints:
+
+- Local remains the default provider. A user who selects local must never have text sent externally as an implicit fallback.
+- Provider selection is explicit and visible per mode. The UI must distinguish `Local` from `External` and state that the transcription will leave the Mac.
+- Audio never goes to Copilot; only the source transcript, the mode instruction and the minimum glossary needed for that request may be sent.
+- Never run an agent CLI in the user's active repository or home directory. Use a fresh temporary working directory with no project files, no inherited repository instructions and the narrowest environment possible.
+- The Copilot invocation must not be allowed to run shell commands, edit files, browse the workspace, invoke MCP tools or ask for interactive approval. Dictated text is untrusted quoted content, not an instruction to the agent runtime.
+- No prompt, transcript or model output may be passed as a command-line argument if the OS process list can expose it. Prefer stdin or another documented private input channel; verify what the CLI actually supports.
+- Authentication credentials remain owned by the CLI. Voxly must never read, copy, store or log tokens.
+- Failure, timeout, missing CLI, expired authentication, rate limiting and malformed output must be visible. External-to-local fallback is allowed only when the user explicitly enables that policy; it must never happen silently.
+- Do not rely on scraping terminal decoration or conversational prose. The adapter requires a documented machine-readable format or a demonstrably stable plain-output mode with strict validation.
+
+Spike questions, in order:
+
+1. Verify current official GitHub Copilot CLI documentation and terms. Determine whether scripted non-interactive use from another desktop application is supported, whether an existing Copilot subscription covers it, what limits apply, and whether redistribution or automatic installation is permitted. Record citations and access dates; preview behaviour is not a contract.
+2. Install or initialize the CLI only with the user's normal GitHub authentication flow. Document executable location, version, update behaviour and how Voxly can detect ready, missing, unauthenticated and incompatible states without reading credentials.
+3. Find the narrowest invocation that accepts an arbitrary prompt, disables all tools and workspace context, emits only the answer, supports cancellation and returns meaningful exit status. Check stdin support, JSON output, model selection, timeout behaviour, stderr noise and whether startup modifies files.
+4. Prove isolation experimentally in a temporary directory containing sentinel files outside it: ask adversarial dictated text to read a file, run a command or alter the workspace, and verify that the CLI cannot do so. A prompt saying “do not use tools” is not a security boundary; if tools cannot be technically disabled, stop the integration and record the spike as a no-go.
+5. Benchmark the same two-call pipeline used locally: Portuguese-to-English faithful translation, then concise message rewriting. Also test whether one Copilot call can match quality without losing semantic fidelity, but do not change the architecture merely to save a request unless the benchmark supports it.
+6. Run at least 20 anonymised history samples covering short and long dictation, repeated ideas, names and jargon, negation, uncertainty, requests, multiple people, and action direction. Include the known failure examples above. Never send current private history until it has been manually reviewed and anonymised for this purpose.
+7. Compare against `Qwen3.5-2B-Q5_K_M` under the same prompts. Measure end-to-end wall time, first-run versus warm latency, failure rate, output completeness and quality. Human review must be blind to provider and score semantic fidelity, actor/action preservation, negation/modality, essential omissions, unsupported additions, idiomatic English, concision and send-without-editing readiness.
+8. Measure operational behaviour: concurrent dictations, cancellation, a hung process, no network, expired login, quota/rate-limit responses, CLI auto-update, changed output format, app termination and whether more than one invocation can safely run at once.
+
+Go/no-go thresholds:
+
+- Zero critical meaning reversals in the benchmark: wrong actor, inverted request, lost negation, changed decision or fabricated commitment is an automatic failure for that sample.
+- Copilot must materially improve blind human ratings for semantic fidelity and idiomatic English over the local 2B baseline, and improve the percentage of messages judged ready to send without editing. Report the numbers; “looks better” is not sufficient.
+- Warm two-stage processing should target a median of at most 8 seconds and a p95 of at most 15 seconds for a 200-word transcript. If the quality gain is compelling but this target is missed, report the trade-off rather than silently relaxing it.
+- At least 98% of requests must return one complete parseable result in the harness; all other outcomes must fail closed without inserting partial, diagnostic or conversational text.
+- Tools and workspace access must be technically disabled or isolated strongly enough that adversarial transcript content cannot cause side effects.
+- The subscription and CLI terms must permit the intended automated personal use. Unclear terms are a no-go pending clarification, not an assumption in favour of shipping.
+
+Required spike artifacts:
+
+- A short report containing the official CLI contract discovered, terms/limitations, exact tested version and commands, benchmark machine, raw timing summary, anonymised quality scorecard, failure cases and a go/no-go recommendation.
+- A disposable benchmark harness outside the production coordinator. It may implement a minimal `CopilotCLIProvider`, but must not add provider controls to the shipping UI or route normal dictations externally during the spike.
+- Captured fixture inputs and expected invariants, with private names/content replaced. Store no credentials or raw private history in the repository.
+- A proposed production boundary only if the result is “go”: a `TextProcessingProvider` protocol supporting translation and refinement, with `LocalLlamaProvider` remaining the default and `CopilotCLIProvider` opt-in. Include capability/readiness reporting, cancellation, timeout, structured errors and an explicit fallback policy.
+- A list of documentation changes required before release. `PRODUCT_SPEC.md` currently puts external models and remote processing out of scope and states that content stays local; those claims must remain true during the spike and must be revised with a clear local-versus-external privacy contract before any provider ships.
+
+Out of scope for this spike: replacing Whisper; sending audio externally; integrating Claude Code or Cline; building the final provider-selection UI; silently changing existing modes; storing GitHub credentials; distributing the Copilot CLI; or removing the local Llama implementation. If Copilot is a no-go, keep the harness/report as evidence and use the same benchmark to evaluate a larger local 7B/8B GGUF or another external CLI in a separate entry.
+
+Exit decision: promote this into an implementation feature only when the compatibility, isolation, terms, quality and latency gates all pass. Otherwise close the spike with the measured blocker and leave Voxly fully local. If promoted, split implementation into provider abstraction first, Copilot adapter second, explicit privacy/provider UI third, and documentation plus failure-path tests last; each increment must preserve existing local behaviour.
+
 ### Per-app mode selection, as an opt-in
 
 Today the mode is always decided by which modifier the user holds, so the user carries the "which key do I hold here?" decision on every dictation. `captureTarget()` already resolves the frontmost application, so Voxly could pick the mode from the app instead.
@@ -632,11 +705,18 @@ Intended fix: a per-mode option, defaulting to on. Not urgent, since the default
 
 Related: `PRODUCT_SPEC.md` §1 and §2 describe the audience as people writing "in work, communication, and development apps" without ranking them. Chat with agents and colleagues is the primary target and code or technical notes are secondary, which is not derivable from the code and should be stated in the spec so future decisions like this one have something to appeal to.
 
-### Dark mode is forced with a hardcoded palette
+### Modes cannot be disabled, only deleted
 
-`ContentView` applies `.preferredColorScheme(.dark)` and `VoxlyColor` hardcodes every surface. The graphite-and-black visual language is called for by §6 of the spec, so the dark identity is deliberate — but ignoring the system setting is a separate choice from having a dark palette, and hardcoded colours also mean the capsule cannot respond to accessibility settings.
+Every mode in `VoxlyStore.modes` is always active. The only way to stop a mode's shortcut from triggering a dictation is to delete the mode entirely, which also destroys its name, system prompt, and any associated history entries. There is no recoverable off state.
 
-Intended fix: keep the dark identity if that is the intent, but move the palette into an asset catalog so it has light variants and can be adjusted in one place, and honour `accessibilityDisplayShouldIncreaseContrast` and `accessibilityDisplayShouldReduceTransparency` in the capsule.
+Observable effects: a user who wants to temporarily suspend a secondary mode — because its shortcut conflicts with a specific app, or because it is a draft they are not ready to use yet — has no option short of deleting it and recreating it later. This is a loss of data on a short round-trip, and it makes experimentation with new modes riskier than it needs to be.
+
+Intended fix:
+
+- Add an `isEnabled: Bool` property to `DictationMode`, defaulting to `true`, so existing stored modes and the built-in defaults are unaffected on load.
+- In `receive()`, skip any mode whose `isEnabled` is `false` when resolving a `flagsChanged` event — a disabled mode's shortcut does nothing, the same as if the mode did not exist.
+- In `ModesView`, render a toggle (or a checkbox) on each row to flip the flag in place. Disabled rows should be visually muted — reduced opacity or a distinct label style — so the state is immediately visible without opening the mode editor.
+- A disabled mode must still appear in history results and remain fully editable, so the user can re-enable or delete it at any time without data loss.
 
 ## How to use this file
 

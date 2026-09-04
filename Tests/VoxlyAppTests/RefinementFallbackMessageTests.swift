@@ -1,6 +1,7 @@
 import XCTest
 @testable import VoxlyApp
 
+@MainActor
 final class RefinementFallbackMessageTests: XCTestCase {
     private func message(for error: Error) -> String {
         DictationCoordinator.insertionMessage(
@@ -20,7 +21,7 @@ final class RefinementFallbackMessageTests: XCTestCase {
 
         XCTAssertTrue(message.contains("2400"), message)
         XCTAssertTrue(message.contains("2048"), message)
-        XCTAssertTrue(message.contains("raw text kept"), message)
+        XCTAssertTrue(message.contains("unrefined text kept"), message)
         XCTAssertTrue(message.contains("Text inserted"), message)
     }
 
@@ -35,13 +36,20 @@ final class RefinementFallbackMessageTests: XCTestCase {
     func testAnUnavailableModelKeepsTheGenericFallbackReason() {
         let message = message(for: VoxlyError.executableMissing("llama.cpp"))
 
-        XCTAssertTrue(message.hasPrefix("Refinement failed; raw text kept"), message)
+        XCTAssertTrue(message.hasPrefix("Refinement failed; unrefined text kept"), message)
+    }
+
+    func testWrongOutputLanguageHasASpecificFallbackReason() {
+        let message = message(for: VoxlyError.refinementWrongLanguage(expected: .english))
+
+        XCTAssertTrue(message.contains("expected English output"), message)
+        XCTAssertTrue(message.contains("unrefined text kept"), message)
     }
 
     func testTheCapsuleDoesNotReportAnUnrefinedResultAsRefined() {
         let note = DictationCoordinator.refinementFallbackNote(for: VoxlyError.refinementIncomplete)
 
-        XCTAssertEqual(CapsuleState.rawTextKept(reason: note, insertion: .inserted).title, "Raw text inserted")
+        XCTAssertEqual(CapsuleState.rawTextKept(reason: note, insertion: .inserted).title, "Unrefined text inserted")
         XCTAssertNotEqual(CapsuleState.rawTextKept(reason: note, insertion: .inserted), .inserted)
     }
 
@@ -49,7 +57,7 @@ final class RefinementFallbackMessageTests: XCTestCase {
         let note = DictationCoordinator.refinementFallbackNote(for: VoxlyError.refinementIncomplete)
         let copied = CapsuleState.rawTextKept(reason: note, insertion: .copied)
 
-        XCTAssertEqual(copied.title, "Raw text copied — paste manually")
+        XCTAssertEqual(copied.title, "Unrefined text copied — paste manually")
         XCTAssertNotEqual(copied, .rawTextKept(reason: note, insertion: .inserted))
     }
 
