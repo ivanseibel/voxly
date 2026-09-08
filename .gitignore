@@ -3,3 +3,4 @@
 build/
 .swiftpm/
 native/
+node_modules/

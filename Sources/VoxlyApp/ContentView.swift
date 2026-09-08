@@ -47,7 +47,7 @@ struct ModesView: View {
                 ForEach(store.modes) { mode in
                     HStack(spacing: 0) {
                         Button { selectedID = mode.id; draft = mode; error = "" } label: {
-                            HStack(spacing: 10) { VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text(mode.outputLanguage == .sameAsInput ? mode.language.rawValue : "\(mode.language.rawValue) · \(mode.outputLanguage.rawValue) output").font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                            HStack(spacing: 10) { VStack(alignment: .leading, spacing: 2) { Text(mode.name); Text("\(mode.outputLanguage == .sameAsInput ? mode.language.rawValue : "\(mode.language.rawValue) · \(mode.outputLanguage.rawValue) output") · \(mode.textProcessingProvider.name)").font(.caption).foregroundStyle(VoxlyColor.muted) }; Spacer(); Text(mode.shortcut).font(.system(.caption, design: .monospaced)).foregroundStyle(VoxlyColor.muted) }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(NavButton(selected: mode.id == selectedID))
                         Button { deleteMode(mode) } label: { Image(systemName: "trash").foregroundStyle(VoxlyColor.muted).frame(width: 24, height: 24).contentShape(.rect) }.buttonStyle(.plain).accessibilityLabel("Delete mode \(mode.name)").padding(.trailing, 10).disabled(store.modes.count <= 1).opacity(store.modes.count <= 1 ? 0.3 : 1)
                     }
@@ -58,7 +58,7 @@ struct ModesView: View {
             Divider().overlay(VoxlyColor.line)
             if let binding = Binding($draft) {
                 ModeEditor(mode: binding, error: $error, save: save, store: store)
-            } else { ContentUnavailableView("Select a mode", systemImage: "waveform", description: Text("Configure language, shortcut, and local instructions.")) }
+            } else { ContentUnavailableView("Select a mode", systemImage: "waveform", description: Text("Configure language, shortcut, instructions, and provider.")) }
         }.onAppear { selectedID = store.modes.first?.id; draft = selected }
     }
     func save() {
@@ -86,10 +86,16 @@ struct ModeEditor: View {
             Field(label: "Name") { TextField("Name", text: $mode.name) }
             HStack(spacing: 14) { ShortcutRecorder(keyCode: $mode.shortcutKeyCode, store: store, modeID: mode.id).id(mode.id); Field(label: "Spoken language") { Picker("Spoken language", selection: $mode.language) { ForEach(DictationLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) } }
             Field(label: "Output language") { Picker("Output language", selection: $mode.outputLanguage) { ForEach(DictationOutputLanguage.allCases) { Text($0.rawValue).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) }
-            Field(label: "Local instructions") { TextEditor(text: $mode.instructions).font(.body).scrollContentBackground(.hidden).frame(minHeight: 145).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
+            Field(label: "Text processing") { Picker("Text processing", selection: $mode.textProcessingProvider) { ForEach(TextProcessingProvider.allCases) { Text($0.name).tag($0) } }.labelsHidden().frame(maxWidth: .infinity, alignment: .leading) }
+            if mode.textProcessingProvider.sendsTextExternally {
+                Label("External processing: after local transcription, this mode sends the transcript, instructions, and vocabulary to GitHub Copilot CLI. Audio stays on this Mac.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange).padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+            }
+            Field(label: mode.textProcessingProvider.sendsTextExternally ? "Instructions" : "Local instructions") { TextEditor(text: $mode.instructions).font(.body).scrollContentBackground(.hidden).frame(minHeight: 145).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
             VStack(alignment: .leading, spacing: 5) {
                 Field(label: "Vocabulary") { TextEditor(text: $mode.vocabulary).font(.body).scrollContentBackground(.hidden).frame(minHeight: 72).padding(8).background(VoxlyColor.inset, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(VoxlyColor.line)) }
-                Text("Names, products and jargon to preserve during transcription and translation, comma separated. Stays on this Mac.").font(.caption).foregroundStyle(VoxlyColor.muted)
+                Text(mode.textProcessingProvider.sendsTextExternally ? "Names, products and jargon to preserve, comma separated. Sent with the transcript when this external mode runs." : "Names, products and jargon to preserve during transcription and translation, comma separated. Stays on this Mac.").font(.caption).foregroundStyle(VoxlyColor.muted)
             }
             HStack { VStack(alignment: .leading, spacing: 2) { Text("Output").font(.caption.weight(.medium)).foregroundStyle(VoxlyColor.muted); Text("Insert automatically; clipboard as fallback").font(.subheadline) }; Spacer(); Toggle("", isOn: $mode.automaticInsert).labelsHidden().toggleStyle(.switch) }
                 .padding(12).background(VoxlyColor.raised, in: RoundedRectangle(cornerRadius: 8)).overlay(RoundedRectangle(cornerRadius: 8).stroke(VoxlyColor.line))

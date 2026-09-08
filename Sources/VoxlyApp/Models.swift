@@ -16,6 +16,20 @@ enum DictationOutputLanguage: String, CaseIterable, Codable, Identifiable, Senda
     var id: String { rawValue }
 }
 
+enum TextProcessingProvider: String, CaseIterable, Codable, Identifiable, Sendable {
+    case localLlama
+    case copilotCLI
+
+    var id: String { rawValue }
+    var name: String {
+        switch self {
+        case .localLlama: "Local Llama"
+        case .copilotCLI: "GitHub Copilot CLI"
+        }
+    }
+    var sendsTextExternally: Bool { self == .copilotCLI }
+}
+
 enum CapsuleState: Equatable {
     case ready, recording, transcribing, refining(String), inserted, copied, error(String)
     /// The mode did not refine the dictation — a partial or absent rewrite must never be
@@ -49,6 +63,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
     /// need the same words. Combined with the global `whisperPrompt` config key.
     var vocabulary = ""
     var modelProfile = "Balanced (local)"
+    var textProcessingProvider: TextProcessingProvider = .localLlama
     var automaticInsert = true
     var usesRefinement: Bool { name != "Faithful transcription" && !instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -92,7 +107,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
 
     // MARK: - Codable (backward compat with old shortcut-only data)
     enum CodingKeys: String, CodingKey {
-        case id, name, shortcutKeyCode, language, outputLanguage, instructions, vocabulary, modelProfile, automaticInsert
+        case id, name, shortcutKeyCode, language, outputLanguage, instructions, vocabulary, modelProfile, textProcessingProvider, automaticInsert
     }
 
     init(from decoder: Decoder) throws {
@@ -111,6 +126,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         }
         vocabulary = try c.decodeIfPresent(String.self, forKey: .vocabulary) ?? ""
         modelProfile = try c.decodeIfPresent(String.self, forKey: .modelProfile) ?? "Balanced (local)"
+        textProcessingProvider = try c.decodeIfPresent(TextProcessingProvider.self, forKey: .textProcessingProvider) ?? .localLlama
         automaticInsert = try c.decodeIfPresent(Bool.self, forKey: .automaticInsert) ?? true
     }
 
@@ -124,12 +140,14 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         try c.encode(instructions, forKey: .instructions)
         try c.encode(vocabulary, forKey: .vocabulary)
         try c.encode(modelProfile, forKey: .modelProfile)
+        try c.encode(textProcessingProvider, forKey: .textProcessingProvider)
         try c.encode(automaticInsert, forKey: .automaticInsert)
     }
 
     init(id: UUID = UUID(), name: String, shortcutKeyCode: Int = 54, language: DictationLanguage,
          instructions: String, vocabulary: String = "", modelProfile: String = "Balanced (local)",
-         automaticInsert: Bool = true, outputLanguage: DictationOutputLanguage = .sameAsInput) {
+            textProcessingProvider: TextProcessingProvider = .localLlama, automaticInsert: Bool = true,
+            outputLanguage: DictationOutputLanguage = .sameAsInput) {
         self.id = id
         self.name = name
         self.shortcutKeyCode = shortcutKeyCode
@@ -138,6 +156,7 @@ struct DictationMode: Identifiable, Codable, Equatable, Sendable {
         self.instructions = instructions
         self.vocabulary = vocabulary
         self.modelProfile = modelProfile
+        self.textProcessingProvider = textProcessingProvider
         self.automaticInsert = automaticInsert
     }
 

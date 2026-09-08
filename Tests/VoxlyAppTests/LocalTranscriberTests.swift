@@ -96,5 +96,17 @@ final class LocalTranscriberTests: XCTestCase {
         XCTAssertEqual(modes[0].name, "Clean text")
         XCTAssertEqual(modes[0].shortcutKeyCode, 61)
         XCTAssertEqual(modes[0].vocabulary, "")
+        XCTAssertEqual(modes[0].textProcessingProvider, .localLlama)
+    }
+
+    func testDecodesExplicitCopilotCLIProvider() throws {
+        let saved = """
+            [{"id":"22222222-2222-2222-2222-222222222222","name":"External","language":"English",
+              "instructions":"Make concise.","textProcessingProvider":"copilotCLI"}]
+            """
+
+        let modes = try JSONDecoder().decode([DictationMode].self, from: Data(saved.utf8))
+
+        XCTAssertEqual(modes[0].textProcessingProvider, .copilotCLI)
     }
 }

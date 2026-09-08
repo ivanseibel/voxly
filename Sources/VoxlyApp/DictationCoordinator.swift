@@ -7,7 +7,7 @@ final class DictationCoordinator: NSObject {
     private let recorder = AudioRecorder()
     private let permissions = PermissionManager()
     private let transcriber = LocalTranscriber()
-    private let refiner = LocalRefiner()
+    private let localRefiner = LocalRefiner()
     private let inserter = TextInserter()
     private var target: TextInserter.Target?
     private var monitor: Any?
@@ -118,9 +118,10 @@ final class DictationCoordinator: NSObject {
                 VoxlyLog.log("Starting dedicated \(targetLanguage.rawValue) translation — mode: '\(mode.name)'")
                 if ownsSharedUI(dictationID) {
                     store.capsule = .refining(mode.name)
-                    store.lastMessage = "Translating to \(targetLanguage.rawValue) locally"
+                    store.lastMessage = "Translating to \(targetLanguage.rawValue) with \(mode.textProcessingProvider.name)"
                     onCapsule?(true)
                 }
+                let refiner = try Self.textProcessor(for: mode)
                 prepared = try await Task.detached { [refiner] in
                     try await refiner.translate(raw, to: targetLanguage, vocabulary: mode.vocabulary)
                 }.value
@@ -137,10 +138,13 @@ final class DictationCoordinator: NSObject {
                 VoxlyLog.log("Starting refinement — mode: '\(mode.name)', instructions: \(mode.instructions.prefix(60))...")
                 if ownsSharedUI(dictationID) {
                     store.capsule = .refining(mode.name)
-                    store.lastMessage = "Refining text locally"
+                    store.lastMessage = "Refining text with \(mode.textProcessingProvider.name)"
                     onCapsule?(true)
                 }
-                do { final = try await Task.detached { [refiner] in try await refiner.refine(prepared, mode: mode) }.value }
+                do {
+                    let refiner = try Self.textProcessor(for: mode)
+                    final = try await Task.detached { [refiner] in try await refiner.refine(prepared, mode: mode) }.value
+                }
                 catch {
                     VoxlyLog.log("Refinement fell back to the prepared text: \(error.localizedDescription)")
                     final = prepared
@@ -175,6 +179,12 @@ final class DictationCoordinator: NSObject {
             if let saved = Self.preserveAudioForDebug(audio) { VoxlyLog.log("Audio from failure preserved at: \(saved.path)") }
             if ownsSharedUI(dictationID) { fail(error.localizedDescription) }
             else { VoxlyLog.log("Superseded dictation failed: \(error.localizedDescription)") }
+        }
+    }
+    nonisolated private static func textProcessor(for mode: DictationMode) throws -> any TextProcessingService {
+        switch mode.textProcessingProvider {
+        case .localLlama: LocalRefiner()
+        case .copilotCLI: try CopilotCLIProvider()
         }
     }
     /// Why a refinement mode ended up inserting its unrefined input. The three causes need

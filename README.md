@@ -19,7 +19,7 @@
 
 **Voxly** is a lightweight, privacy-first macOS application for voice dictation. Hold a global shortcut key, speak, and release — Voxly transcribes your speech and inserts the result directly into your active text field.
 
-Voxly runs entirely on your Mac using hardware-accelerated (arm64 / Metal) local AI engines. **No audio or text ever leaves your machine.**
+Voxly uses hardware-accelerated (arm64 / Metal) local AI engines by default. **Audio never leaves your machine.** Text also remains local unless you explicitly select the `GitHub Copilot CLI` text-processing provider for a mode; that opt-in mode sends only the transcript, its instruction, and its vocabulary to Copilot after local transcription.
 
 <div align="center">
   <img src="assets/menu-bar-popover.png" alt="Voxly Menu Bar Popover" width="380">
@@ -32,9 +32,9 @@ Voxly runs entirely on your Mac using hardware-accelerated (arm64 / Metal) local
 ## ✨ Key Features
 
 - **Push-to-Talk Dictation:** Hold a global modifier key to record, release to transcribe and insert directly into the active app.
-- **100% Local & Private:** Transcribes locally via `whisper.cpp` and refines text via `llama.cpp`. Audio buffers are deleted immediately after processing.
+- **Local by Default:** Transcribes locally via `whisper.cpp` and refines text via `llama.cpp`. Audio buffers are deleted immediately after processing. An explicit per-mode `GitHub Copilot CLI` option can process transcript text externally; it never sends audio and never silently replaces the local provider.
 - **Persistent High-Performance Servers:** Uses local persistent daemon servers to eliminate model reloading latency for near-instant response.
-- **Multiple Dictation Modes:** Configure separate speech modes (e.g., *Faithful transcription*, *Clean text*) with custom global hotkeys, languages, and local instructions.
+- **Multiple Dictation Modes:** Configure separate speech modes (e.g., *Faithful transcription*, *Clean text*) with custom global hotkeys, languages, instructions, and an explicit local or external text-processing provider.
 - **Per-Mode Vocabulary:** Give each mode the names, products, and jargon it should transcribe correctly. The list is stored locally with the mode and applies to the next dictation — no restart, nothing uploaded.
 - **Direct Cursor Insertion:** Injects transcribed text into the focused text field using macOS Accessibility APIs, with automatic fallback to clipboard paste (`⌘V`).
 - **Permissions Diagnostics:** Built-in setup verification for Microphone, Accessibility permissions, and local engine files.
