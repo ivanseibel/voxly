@@ -682,7 +682,7 @@ This is worth doing only if one of the approaches is actually cheap, so measure 
 
 Whichever wins, the replacement field is an enum of available models, not a free-text string.
 
-### History is read-only
+### Enhancement: history needs recovery and review actions
 
 `HistoryView` can search and delete, and nothing else. `rawText` is stored on every entry and never displayed, so §5.2's requirement to keep the raw text "for audit" has no interface. For a dictation tool, "the paste went into the wrong window, let me get that text back" is a routine need with no answer today.
 
